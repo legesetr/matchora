@@ -9,7 +9,7 @@ const SESSION_COOKIE = "mcp_session";
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 const DEFAULT_CHANNELS = [
-  { id: "913461", name: "beIN Sports 1-61", tvgId: "beinsports1.tr", group: "beIN" },
+  { id: "913461", name: "beIN Sports 1-61test", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913460", name: "beIN Sports 1-60-FHD", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913459", name: "beIN Sports 1-59-HD İY", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913458", name: "beIN Sports 1-58-", tvgId: "beinsports1.tr", group: "beIN" },
