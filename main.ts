@@ -877,7 +877,7 @@ export default {
     }
 
     return new Response(
-      "Matchora Proxy v16\n\nPublic:\n- /playlist.m3u\n- /playlist-tr.m3u\n- /play/<id>\n- /status\n- /refresh?c=<id>\n\nAdmin:\n- /admin\n- /api/admin/debug\n",
+      "ha siktir",
       { status: 404, headers: { "Content-Type": "text/plain" } }
     );
   },
