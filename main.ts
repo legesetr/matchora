@@ -1,5 +1,6 @@
 // ============================================================
-// Matchora Proxy Worker v16 — Full Debug
+// Matchora Proxy — Deno Deploy v17
+// Cloudflare Workers v16'nın Deno uyarlaması
 // ============================================================
 
 const MATCHORA_BASE = "https://matchora.to";
@@ -12,7 +13,7 @@ const DEFAULT_CHANNELS = [
   { id: "913461", name: "beIN Sports 1-61", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913460", name: "beIN Sports 1-60-FHD", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913459", name: "beIN Sports 1-59-HD İY", tvgId: "beinsports1.tr", group: "beIN" },
-  { id: "913458", name: "beIN Sports 1-58-", tvgId: "beinsports1.tr", group: "beIN" },
+  { id: "913458", name: "beIN Sports 1-58", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913457", name: "beIN Sports 1-57", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913456", name: "beIN Sports 1-56", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913455", name: "beIN Sports 2-55-FHD", tvgId: "beinsports2.tr", group: "beIN" },
@@ -22,13 +23,13 @@ const DEFAULT_CHANNELS = [
   { id: "913452", name: "beIN Sports 1-max1 52", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913451", name: "beIN Sports 1-max 2-51", tvgId: "beinsports1.tr", group: "beIN" },
   { id: "913450", name: "beIN Sports -50", tvgId: "beinsports1.tr", group: "beIN" },
-  { id: "1091502", name: "beIN Sports 5-1091502", tvgId: "beinsports5.tr", group: "beIN" },
-  { id: "1091501", name: "beIN Sports 5 +-1091501", tvgId: "beinsports5p.tr", group: "beIN" },
-  { id: "913440", name: "beIN Sports Haber-40", tvgId: "beinsportshaber.tr", group: "beIN" },
-  { id: "913379", name: "S Sport-913379", tvgId: "ssport.tr", group: "S Sport" },
-  { id: "913380", name: "S Sport 2-913380", tvgId: "ssport2.tr", group: "S Sport" },
+  { id: "1091502", name: "beIN Sports 5", tvgId: "beinsports5.tr", group: "beIN" },
+  { id: "1091501", name: "beIN Sports 5 +", tvgId: "beinsports5p.tr", group: "beIN" },
+  { id: "913440", name: "beIN Sports Haber", tvgId: "beinsportshaber.tr", group: "beIN" },
+  { id: "913379", name: "S Sport", tvgId: "ssport.tr", group: "S Sport" },
+  { id: "913380", name: "S Sport 2", tvgId: "ssport2.tr", group: "S Sport" },
   { id: "913401", name: "TRT Spor", tvgId: "trtspor.tr", group: "TRT" },
-  { id: "913405", name: "TRT Spor Y\u0131ld\u0131z", tvgId: "trtsporyildiz.tr", group: "TRT" },
+  { id: "913405", name: "TRT Spor Yıldız", tvgId: "trtsporyildiz.tr", group: "TRT" },
   { id: "913403", name: "A Spor-03", tvgId: "aspor.tr", group: "Ulusal" },
   { id: "913402", name: "A Spor-02", tvgId: "aspor.tr", group: "Ulusal" },
   { id: "913401", name: "A Spor-01", tvgId: "aspor.tr", group: "Ulusal" },
@@ -37,8 +38,8 @@ const DEFAULT_CHANNELS = [
   { id: "913374", name: "Sports TV", tvgId: "sportstv.tr", group: "Ulusal" },
   { id: "913367", name: "TJK TV", tvgId: "tjktv.tr", group: "Ulusal" },
   { id: "1913944", name: "Ekol Sports", tvgId: "ekolsports.tr", group: "Ulusal" },
-  { id: "1639118", name: "Haber T\xFCrk Spor", tvgId: "haberturkspor.tr", group: "Ulusal" },
-  { id: "2142839", name: "\u0130dman TV", tvgId: "idmantv.tr", group: "Ulusal" },
+  { id: "1639118", name: "Haber Türk Spor", tvgId: "haberturkspor.tr", group: "Ulusal" },
+  { id: "2142839", name: "İdman TV", tvgId: "idmantv.tr", group: "Ulusal" },
   { id: "1980495", name: "Tabii", tvgId: "tabii.tr", group: "Ulusal" },
   { id: "913396", name: "EXXEN Spor 1", tvgId: "exxen1.tr", group: "EXXEN" },
   { id: "913394", name: "EXXEN Spor 2", tvgId: "exxen2.tr", group: "EXXEN" },
@@ -46,7 +47,7 @@ const DEFAULT_CHANNELS = [
   { id: "913390", name: "EXXEN Spor 4", tvgId: "exxen4.tr", group: "EXXEN" },
   { id: "913388", name: "EXXEN Spor 5", tvgId: "exxen5.tr", group: "EXXEN" },
   { id: "913386", name: "EXXEN Spor 6", tvgId: "exxen6.tr", group: "EXXEN" },
-  { id: "913384", name: "EXXEN Spor 7", tvgId: "exxen7.tr", group: "EXXEN" }
+  { id: "913384", name: "EXXEN Spor 7", tvgId: "exxen7.tr", group: "EXXEN" },
 ];
 
 const READY_MAX_ATTEMPTS = 10;
@@ -54,13 +55,49 @@ const READY_DELAY_MS = 3000;
 const CAPACITY_DELAY_MS = 5000;
 const MANIFEST_CACHE_MS = 1500;
 
-const tokenCache = {};
-const manifestCache = {};
-const pendingFetch = {};
+const tokenCache: Record<string, any> = {};
+const manifestCache: Record<string, any> = {};
+const pendingFetch: Record<string, Promise<any> | null> = {};
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function timingSafeEqual(a, b) {
+// ------------------------------------------------------------
+// Deno KV
+// ------------------------------------------------------------
+let kvReady: Promise<Deno.Kv> | null = null;
+async function getKv(): Promise<Deno.Kv | null> {
+  if (!kvReady) {
+    try { kvReady = Deno.openKv(); }
+    catch (e) { console.error("KV open failed:", e); return null; }
+  }
+  try { return await kvReady; }
+  catch (e) { console.error("KV await failed:", e); return null; }
+}
+
+async function getChannels(): Promise<any[]> {
+  const kv = await getKv();
+  if (!kv) return DEFAULT_CHANNELS;
+  try {
+    const r = await kv.get(["channels"]);
+    if (Array.isArray(r.value)) return r.value as any[];
+    await kv.set(["channels"], DEFAULT_CHANNELS);
+    return DEFAULT_CHANNELS;
+  } catch (e) {
+    console.error("KV get error:", e);
+    return DEFAULT_CHANNELS;
+  }
+}
+
+async function saveChannels(channels: any[]): Promise<void> {
+  const kv = await getKv();
+  if (!kv) throw new Error("Deno KV kullanılamıyor");
+  await kv.set(["channels"], channels);
+}
+
+// ------------------------------------------------------------
+// Auth helpers
+// ------------------------------------------------------------
+function timingSafeEqual(a: string, b: string): boolean {
   if (typeof a !== "string" || typeof b !== "string") return false;
   if (a.length !== b.length) return false;
   let diff = 0;
@@ -68,13 +105,13 @@ function timingSafeEqual(a, b) {
   return diff === 0;
 }
 
-function getCookie(request, name) {
-  const cookie = request.headers.get("Cookie") || "";
+function getCookie(req: Request, name: string): string | null {
+  const cookie = req.headers.get("Cookie") || "";
   const match = cookie.match(new RegExp("(?:^|;\\s*)" + name + "=([^;]+)"));
   return match ? match[1] : null;
 }
 
-async function hmacSign(payload, secret) {
+async function hmacSign(payload: string, secret: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw", enc.encode(secret),
@@ -84,16 +121,15 @@ async function hmacSign(payload, secret) {
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-async function createSession(secret) {
+async function createSession(secret: string): Promise<string> {
   const payload = btoa(JSON.stringify({ exp: Date.now() + SESSION_TTL_MS }));
   const sig = await hmacSign(payload, secret);
   return payload + "." + sig;
 }
 
-async function verifySession(cookie, secret) {
+async function verifySession(cookie: string | null, secret: string): Promise<boolean> {
   if (!cookie || !cookie.includes(".")) return false;
-  const parts = cookie.split(".");
-  const payload = parts[0], sig = parts[1];
+  const [payload, sig] = cookie.split(".");
   try {
     const expected = await hmacSign(payload, secret);
     if (!timingSafeEqual(sig, expected)) return false;
@@ -102,13 +138,17 @@ async function verifySession(cookie, secret) {
   } catch { return false; }
 }
 
-async function requireAuth(request, env) {
-  if (!env.ADMIN_PASSWORD) return false;
-  const cookie = getCookie(request, SESSION_COOKIE);
-  return await verifySession(cookie, env.ADMIN_PASSWORD);
+async function requireAuth(req: Request): Promise<boolean> {
+  const pass = Deno.env.get("ADMIN_PASSWORD");
+  if (!pass) return false;
+  const cookie = getCookie(req, SESSION_COOKIE);
+  return await verifySession(cookie, pass);
 }
 
-function isNumericId(s) {
+// ------------------------------------------------------------
+// Helpers
+// ------------------------------------------------------------
+function isNumericId(s: string): boolean {
   if (typeof s !== "string" || s.length === 0) return false;
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
@@ -117,152 +157,23 @@ function isNumericId(s) {
   return true;
 }
 
-function charCodes(s) {
-  const r = [];
+function charCodes(s: string): string {
+  const r: number[] = [];
   for (let i = 0; i < s.length; i++) r.push(s.charCodeAt(i));
   return r.join(",");
 }
 
-async function getChannels(env) {
-  try {
-    if (env.CHANNELS_KV) {
-      const data = await env.CHANNELS_KV.get("channels", "json");
-      if (Array.isArray(data)) return data;
-      await env.CHANNELS_KV.put("channels", JSON.stringify(DEFAULT_CHANNELS));
-      return DEFAULT_CHANNELS;
-    }
-  } catch (e) { console.error("KV read error:", e); }
-  return DEFAULT_CHANNELS;
-}
-
-async function saveChannels(env, channels) {
-  if (!env.CHANNELS_KV) throw new Error("CHANNELS_KV binding tanımlı değil. wrangler.toml'u kontrol edin.");
-  await env.CHANNELS_KV.put("channels", JSON.stringify(channels));
-}
-
-async function handleLogin(request, env) {
-  if (!env.ADMIN_PASSWORD) {
-    return new Response(JSON.stringify({ error: "ADMIN_PASSWORD ayarlanmamış. 'npx wrangler secret put ADMIN_PASSWORD' çalıştırın." }), {
-      status: 500, headers: { "Content-Type": "application/json" },
-    });
-  }
-  let body;
-  try { body = await request.json(); } catch { body = {}; }
-  const password = body.password || "";
-  if (!timingSafeEqual(password, env.ADMIN_PASSWORD)) {
-    return new Response(JSON.stringify({ error: "Yanlış şifre" }), {
-      status: 401, headers: { "Content-Type": "application/json" },
-    });
-  }
-  const session = await createSession(env.ADMIN_PASSWORD);
-  const maxAge = Math.floor(SESSION_TTL_MS / 1000);
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "Set-Cookie": SESSION_COOKIE + "=" + session + "; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=" + maxAge,
-    },
+function jsonResp(obj: any, status = 200): Response {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { "Content-Type": "application/json" },
   });
 }
 
-async function handleLogout() {
-  return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "Set-Cookie": SESSION_COOKIE + "=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
-    },
-  });
-}
-
-async function handleListChannels(env) {
-  const channels = await getChannels(env);
-  return new Response(JSON.stringify(channels), {
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-  });
-}
-
-async function handleSaveChannels(request, env) {
-  try {
-    if (!env.CHANNELS_KV) {
-      return new Response(JSON.stringify({
-        error: "KV binding yok",
-        detail: "wrangler.toml'da [[kv_namespaces]] bloğu eksik veya deploy sırasında hata oluştu. 'npx wrangler kv namespace list' ile ID'nizi doğrulayın."
-      }), {
-        status: 500, headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    let channels;
-    try { channels = await request.json(); } catch (e) {
-      return new Response(JSON.stringify({
-        error: "JSON parse hatası",
-        detail: e.message
-      }), {
-        status: 400, headers: { "Content-Type": "application/json" },
-      });
-    }
-    if (!Array.isArray(channels)) {
-      return new Response(JSON.stringify({ error: "Geçersiz veri: dizi bekleniyor" }), {
-        status: 400, headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const idMap = new Map();
-    for (let i = 0; i < channels.length; i++) {
-      const c = channels[i];
-      const id = String((c && c.id) || "").trim();
-      if (!isNumericId(id)) {
-        return new Response(JSON.stringify({
-          error: "Satır " + (i + 1) + ": ID sayısal olmalı",
-          detail: 'Gelen: "' + id + '" | uzunluk: ' + id.length + ' | kodlar: ' + charCodes(id)
-        }), {
-          status: 400, headers: { "Content-Type": "application/json" },
-        });
-      }
-      const name = String((c && c.name) || "").trim();
-      if (!name) {
-        return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": İsim zorunlu" }), {
-          status: 400, headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (!idMap.has(id)) idMap.set(id, []);
-      idMap.get(id).push(i + 1);
-    }
-
-    const dupes = [...idMap.entries()].filter(([_, rows]) => rows.length > 1);
-    if (dupes.length) {
-      const detail = dupes.map(([id, rows]) => '"' + id + '" (satır ' + rows.join(', ') + ')').join(' | ');
-      return new Response(JSON.stringify({ error: "Tekrarlanan ID: " + detail }), {
-        status: 400, headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    const cleaned = channels.map(c => ({
-      id: String((c && c.id) || "").trim(),
-      name: String((c && c.name) || "").trim(),
-      tvgId: (c && c.tvgId) ? String(c.tvgId).trim() : "",
-      group: (c && c.group) ? String(c.group).trim() : "Genel",
-    }));
-
-    await saveChannels(env, cleaned);
-
-    for (const id of idMap.keys()) delete manifestCache[id];
-
-    return new Response(JSON.stringify({ ok: true, count: cleaned.length }), {
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({
-      error: "Sunucu hatası: " + e.message,
-      detail: e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : null
-    }), {
-      status: 500, headers: { "Content-Type": "application/json" },
-    });
-  }
-}
-
-async function fetchFreshToken(channelId) {
+// ------------------------------------------------------------
+// Matchora token
+// ------------------------------------------------------------
+async function fetchFreshToken(channelId: string) {
   const playApi = MATCHORA_BASE + "/api/play/" + channelId;
   const embedUrl = MATCHORA_BASE + "/embed/channel/" + channelId;
   for (let attempt = 1; attempt <= READY_MAX_ATTEMPTS; attempt++) {
@@ -294,7 +205,7 @@ async function fetchFreshToken(channelId) {
   throw new Error("Yayın hazır değil");
 }
 
-async function getToken(channelId, force) {
+async function getToken(channelId: string, force = false) {
   const cache = tokenCache[channelId];
   if (!force && cache && cache.expiresAt > Date.now() + 10000) return cache;
   if (pendingFetch[channelId]) return await pendingFetch[channelId];
@@ -305,7 +216,10 @@ async function getToken(channelId, force) {
   return await pendingFetch[channelId];
 }
 
-async function proxyM3U8(streamUrl, channelId, baseOrigin) {
+// ------------------------------------------------------------
+// Manifest proxy
+// ------------------------------------------------------------
+async function proxyM3U8(streamUrl: string, channelId: string, baseOrigin: string): Promise<Response> {
   const cached = manifestCache[channelId];
   if (cached && cached.expiresAt > Date.now()) {
     return new Response(cached.body, {
@@ -318,7 +232,7 @@ async function proxyM3U8(streamUrl, channelId, baseOrigin) {
   if (!resp.ok) throw new Error("Upstream " + resp.status);
   const text = await resp.text();
   const baseUrl = new URL(streamUrl);
-  const out = [];
+  const out: string[] = [];
   let hasStart = false, hasIndependent = false;
   for (const line of text.split("\n")) {
     const tr = line.trim();
@@ -326,7 +240,7 @@ async function proxyM3U8(streamUrl, channelId, baseOrigin) {
     if (tr.startsWith("#EXT-X-START")) hasStart = true;
     if (tr.startsWith("#EXT-X-INDEPENDENT-SEGMENTS")) hasIndependent = true;
     if (tr.startsWith("#") && tr.includes('URI="')) {
-      out.push(tr.replace(/URI="([^"]+)"/g, (_, u) => {
+      out.push(tr.replace(/URI="([^"]+)"/g, (_: string, u: string) => {
         try {
           const abs = new URL(u, baseUrl).href;
           return 'URI="' + baseOrigin + "/seg?c=" + channelId + "&u=" + encodeURIComponent(abs) + '"';
@@ -340,7 +254,7 @@ async function proxyM3U8(streamUrl, channelId, baseOrigin) {
       out.push(baseOrigin + "/seg?c=" + channelId + "&u=" + encodeURIComponent(abs));
     } catch { out.push(line); }
   }
-  const extras = [];
+  const extras: string[] = [];
   if (!hasIndependent) extras.push("#EXT-X-INDEPENDENT-SEGMENTS");
   if (!hasStart) extras.push("#EXT-X-START:TIME-OFFSET=-6.0,PRECISE=YES");
   if (extras.length) {
@@ -354,7 +268,10 @@ async function proxyM3U8(streamUrl, channelId, baseOrigin) {
   });
 }
 
-async function handleSegment(channelId, originalUrl) {
+// ------------------------------------------------------------
+// Segment proxy
+// ------------------------------------------------------------
+async function handleSegment(channelId: string, originalUrl: string): Promise<Response> {
   const cache = await getToken(channelId);
   const orig = new URL(originalUrl);
   const cur = new URL(cache.streamUrl);
@@ -386,8 +303,11 @@ async function handleSegment(channelId, originalUrl) {
   });
 }
 
-function buildM3U(channels, baseOrigin) {
-  const lines = ["#EXTM3U"];
+// ------------------------------------------------------------
+// M3U builder
+// ------------------------------------------------------------
+function buildM3U(channels: any[], baseOrigin: string): string {
+  const lines: string[] = ["#EXTM3U"];
   for (const ch of channels) {
     lines.push(
       '#EXTINF:-1 tvg-id="' + (ch.tvgId || ch.id) + '" tvg-name="' + ch.name + '" group-title="' + (ch.group || "Genel") + '",' + ch.name
@@ -404,8 +324,8 @@ async function fetchTurkishChannels() {
   });
   const json = await resp.json();
   const list = json.channels || json.data || (Array.isArray(json) ? json : []);
-  const out = [];
-  const seen = new Set();
+  const out: any[] = [];
+  const seen = new Set<string>();
   for (const ch of list) {
     for (const feed of (ch.feeds || [])) {
       if (feed.country !== "TR") continue;
@@ -418,6 +338,95 @@ async function fetchTurkishChannels() {
   return out;
 }
 
+// ------------------------------------------------------------
+// Admin handlers
+// ------------------------------------------------------------
+async function handleLogin(req: Request): Promise<Response> {
+  const pass = Deno.env.get("ADMIN_PASSWORD");
+  if (!pass) {
+    return jsonResp({
+      error: "ADMIN_PASSWORD ayarlanmamış",
+      detail: "Deno Deploy panelinde 'Environment Variables' bölümüne ADMIN_PASSWORD ekleyin ve Production context'ini seçin."
+    }, 500);
+  }
+  let body: any;
+  try { body = await req.json(); } catch { body = {}; }
+  const password = body.password || "";
+  if (!timingSafeEqual(password, pass)) {
+    return jsonResp({ error: "Yanlış şifre" }, 401);
+  }
+  const session = await createSession(pass);
+  const maxAge = Math.floor(SESSION_TTL_MS / 1000);
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Set-Cookie": SESSION_COOKIE + "=" + session + "; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=" + maxAge,
+    },
+  });
+}
+
+function handleLogout(): Response {
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Set-Cookie": SESSION_COOKIE + "=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
+    },
+  });
+}
+
+async function handleListChannels(): Promise<Response> {
+  return jsonResp(await getChannels());
+}
+
+async function handleSaveChannels(req: Request): Promise<Response> {
+  try {
+    let channels: any;
+    try { channels = await req.json(); } catch (e: any) {
+      return jsonResp({ error: "JSON parse hatası", detail: e.message }, 400);
+    }
+    if (!Array.isArray(channels)) return jsonResp({ error: "Dizi bekleniyor" }, 400);
+
+    const idMap = new Map<string, number[]>();
+    for (let i = 0; i < channels.length; i++) {
+      const c = channels[i];
+      const id = String((c && c.id) || "").trim();
+      if (!isNumericId(id)) {
+        return jsonResp({
+          error: "Satır " + (i + 1) + ": ID sayısal olmalı",
+          detail: 'Gelen: "' + id + '" | uzunluk: ' + id.length + ' | kodlar: ' + charCodes(id),
+        }, 400);
+      }
+      const name = String((c && c.name) || "").trim();
+      if (!name) return jsonResp({ error: "Satır " + (i + 1) + ": İsim zorunlu" }, 400);
+      if (!idMap.has(id)) idMap.set(id, []);
+      idMap.get(id)!.push(i + 1);
+    }
+    const dupes = [...idMap.entries()].filter(([_, rows]) => rows.length > 1);
+    if (dupes.length) {
+      const detail = dupes.map(([id, rows]) => '"' + id + '" (satır ' + rows.join(", ") + ")").join(" | ");
+      return jsonResp({ error: "Tekrarlanan ID: " + detail }, 400);
+    }
+
+    const cleaned = channels.map((c: any) => ({
+      id: String((c && c.id) || "").trim(),
+      name: String((c && c.name) || "").trim(),
+      tvgId: (c && c.tvgId) ? String(c.tvgId).trim() : "",
+      group: (c && c.group) ? String(c.group).trim() : "Genel",
+    }));
+
+    await saveChannels(cleaned);
+    for (const id of idMap.keys()) delete manifestCache[id];
+    return jsonResp({ ok: true, count: cleaned.length });
+  } catch (e: any) {
+    return jsonResp({ error: "Sunucu hatası: " + e.message }, 500);
+  }
+}
+
+// ------------------------------------------------------------
+// Admin HTML
+// ------------------------------------------------------------
 const ADMIN_HTML = `<!DOCTYPE html>
 <html lang="tr">
 <head>
@@ -741,144 +750,131 @@ fetch('/api/admin/channels').then(function(r) {
 </body>
 </html>`;
 
-export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    const baseOrigin = url.origin;
+// ============================================================
+// Ana handler
+// ============================================================
+async function handler(req: Request): Promise<Response> {
+  const url = new URL(req.url);
+  const path = url.pathname;
+  const baseOrigin = url.origin;
 
-    // Debug endpoint
-    if (path === "/api/admin/debug") {
-      const result = {
-        ADMIN_PASSWORD_set: !!env.ADMIN_PASSWORD,
-        ADMIN_PASSWORD_length: env.ADMIN_PASSWORD ? env.ADMIN_PASSWORD.length : 0,
-        CHANNELS_KV_bound: !!env.CHANNELS_KV,
-      };
+  // Debug
+  if (path === "/api/admin/debug") {
+    const kv = await getKv();
+    const result: any = {
+      ADMIN_PASSWORD_set: !!Deno.env.get("ADMIN_PASSWORD"),
+      ADMIN_PASSWORD_length: (Deno.env.get("ADMIN_PASSWORD") || "").length,
+      KV_available: !!kv,
+    };
+    if (kv) {
       try {
-        if (env.CHANNELS_KV) {
-          const existing = await env.CHANNELS_KV.get("channels", "json");
-          result.kv_read_ok = true;
-          result.kv_channel_count = Array.isArray(existing) ? existing.length : "NOT_ARRAY";
-          const testKey = "_test_" + Date.now();
-          await env.CHANNELS_KV.put(testKey, "ok", { expirationTtl: 60 });
-          result.kv_write_ok = true;
-          await env.CHANNELS_KV.delete(testKey);
-        }
-      } catch (e) {
+        const r = await kv.get(["channels"]);
+        result.kv_read_ok = true;
+        result.kv_channel_count = Array.isArray(r.value) ? (r.value as any[]).length : "NOT_ARRAY";
+        await kv.set(["_test_" + Date.now()], "ok");
+        result.kv_write_ok = true;
+      } catch (e: any) {
         result.kv_error = e.message;
       }
-      return new Response(JSON.stringify(result, null, 2), {
-        headers: { "Content-Type": "application/json" },
-      });
     }
+    return jsonResp(result);
+  }
 
-    if (path === "/admin" || path === "/admin/") {
-      return new Response(ADMIN_HTML, {
-        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
-      });
-    }
+  // Admin UI
+  if (path === "/admin" || path === "/admin/") {
+    return new Response(ADMIN_HTML, {
+      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+    });
+  }
 
-    if (path === "/api/admin/login" && request.method === "POST") return await handleLogin(request, env);
-    if (path === "/api/admin/logout") return await handleLogout();
-    if (path === "/api/admin/channels") {
-      const ok = await requireAuth(request, env);
-      if (!ok) {
-        return new Response(JSON.stringify({ error: "Unauthorized — Oturum süresi dolmuş olabilir, tekrar giriş yapın" }), {
-          status: 401, headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (request.method === "GET") return await handleListChannels(env);
-      if (request.method === "POST") return await handleSaveChannels(request, env);
-      return new Response("Method not allowed", { status: 405 });
-    }
+  // Admin API
+  if (path === "/api/admin/login" && req.method === "POST") return await handleLogin(req);
+  if (path === "/api/admin/logout") return handleLogout();
+  if (path === "/api/admin/channels") {
+    const ok = await requireAuth(req);
+    if (!ok) return jsonResp({ error: "Unauthorized" }, 401);
+    if (req.method === "GET") return await handleListChannels();
+    if (req.method === "POST") return await handleSaveChannels(req);
+    return new Response("Method not allowed", { status: 405 });
+  }
 
-    const channels = await getChannels(env);
+  // Public
+  const channels = await getChannels();
 
-    if (path === "/playlist.m3u" || path === "/playlist") {
-      return new Response(buildM3U(channels, baseOrigin), {
+  if (path === "/playlist.m3u" || path === "/playlist") {
+    return new Response(buildM3U(channels, baseOrigin), {
+      headers: { "Content-Type": "audio/x-mpegurl; charset=utf-8", "Cache-Control": "no-cache" },
+    });
+  }
+
+  if (path === "/playlist-tr.m3u") {
+    try {
+      const tr = await fetchTurkishChannels();
+      return new Response(buildM3U(tr, baseOrigin), {
         headers: { "Content-Type": "audio/x-mpegurl; charset=utf-8", "Cache-Control": "no-cache" },
       });
+    } catch (e: any) {
+      return new Response("#EXTM3U\n# Hata: " + e.message + "\n", { status: 500 });
     }
+  }
 
-    if (path === "/playlist-tr.m3u") {
-      try {
-        const tr = await fetchTurkishChannels();
-        return new Response(buildM3U(tr, baseOrigin), {
-          headers: { "Content-Type": "audio/x-mpegurl; charset=utf-8", "Cache-Control": "no-cache" },
-        });
-      } catch (e) {
-        return new Response("#EXTM3U\n# Hata: " + e.message + "\n", { status: 500 });
-      }
+  const playMatch = path.match(/^\/play\/(\d+)$/);
+  if (playMatch || path === "/play") {
+    const channelId = playMatch ? playMatch[1] : (channels[0] && channels[0].id);
+    if (!channelId) return new Response("Kanal yok", { status: 400 });
+    try {
+      const t = await getToken(channelId);
+      return await proxyM3U8(t.streamUrl, channelId, baseOrigin);
+    } catch (e: any) {
+      return jsonResp({ error: e.message }, 502);
     }
+  }
 
-    const playMatch = path.match(/^\/play\/(\d+)$/);
-    if (playMatch || path === "/play") {
-      const channelId = playMatch ? playMatch[1] : (channels[0] && channels[0].id);
-      if (!channelId) return new Response("Kanal yok", { status: 400 });
-      try {
-        const t = await getToken(channelId);
-        return await proxyM3U8(t.streamUrl, channelId, baseOrigin);
-      } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 502, headers: { "Content-Type": "application/json" },
-        });
-      }
+  if (path === "/seg") {
+    const c = url.searchParams.get("c");
+    const u = url.searchParams.get("u");
+    if (!c || !u) return new Response("Missing params", { status: 400 });
+    try { return await handleSegment(c, u); }
+    catch (e: any) { return new Response("Segment error: " + e.message, { status: 502 }); }
+  }
+
+  if (path === "/status") {
+    const result: any = {};
+    for (const ch of channels) {
+      const cache = tokenCache[ch.id];
+      result[ch.id] = {
+        name: ch.name,
+        hasToken: !!(cache && cache.streamUrl),
+        expiresInMin: cache ? (Math.max(0, cache.expiresAt - Date.now()) / 60000).toFixed(1) : "0",
+      };
     }
+    return jsonResp(result);
+  }
 
-    if (path === "/seg") {
-      const c = url.searchParams.get("c");
-      const u = url.searchParams.get("u");
-      if (!c || !u) return new Response("Missing params", { status: 400 });
-      try { return await handleSegment(c, u); }
-      catch (e) { return new Response("Segment error: " + e.message, { status: 502 }); }
+  if (path === "/refresh") {
+    const c = url.searchParams.get("c") || (channels[0] && channels[0].id);
+    try {
+      await getToken(c, true);
+      delete manifestCache[c];
+      return jsonResp({ ok: true, channelId: c });
+    } catch (e: any) {
+      return jsonResp({ error: e.message }, 500);
     }
+  }
 
-    if (path === "/status") {
-      const result = {};
-      for (const ch of channels) {
-        const cache = tokenCache[ch.id];
-        result[ch.id] = {
-          name: ch.name,
-          hasToken: !!(cache && cache.streamUrl),
-          expiresInMin: cache ? (Math.max(0, cache.expiresAt - Date.now()) / 60000).toFixed(1) : "0",
-        };
-      }
-      return new Response(JSON.stringify(result, null, 2), {
-        headers: { "Content-Type": "application/json" },
-      });
+  if (path === "/debug-tr") {
+    try {
+      const tr = await fetchTurkishChannels();
+      return jsonResp({ count: tr.length, channels: tr });
+    } catch (e: any) {
+      return jsonResp({ error: e.message }, 500);
     }
+  }
 
-    if (path === "/refresh") {
-      const c = url.searchParams.get("c") || (channels[0] && channels[0].id);
-      try {
-        await getToken(c, true);
-        delete manifestCache[c];
-        return new Response(JSON.stringify({ ok: true, channelId: c }, null, 2), {
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 500, headers: { "Content-Type": "application/json" },
-        });
-      }
-    }
+  return new Response("", {
+    status: 404,
+    headers: { "Content-Type": "text/plain" },
+  });
+}
 
-    if (path === "/debug-tr") {
-      try {
-        const tr = await fetchTurkishChannels();
-        return new Response(JSON.stringify({ count: tr.length, channels: tr }, null, 2), {
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (e) {
-        return new Response(JSON.stringify({ error: e.message }), {
-          status: 500, headers: { "Content-Type": "application/json" },
-        });
-      }
-    }
-
-    return new Response(
-      "ha siktir",
-      { status: 404, headers: { "Content-Type": "text/plain" } }
-    );
-  },
-};
+Deno.serve(handler);
