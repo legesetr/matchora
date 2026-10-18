@@ -1,5 +1,5 @@
 // ============================================================
-// Matchora Proxy — Deno Deploy (Türkiye Saati + Zamanlayıcı)
+// Matchora Proxy — Deno Deploy (TR Saati + Zamanlayıcı)
 // ============================================================
 
 const MATCHORA_BASE = "https://matchora.to";
@@ -75,7 +75,7 @@ let channelsCacheExpires = 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// ---------- Deno KV (tembel başlatma) ----------
+// ---------- Deno KV ----------
 let kvInstance: Deno.Kv | null = null;
 
 function getKv(): Promise<Deno.Kv> {
@@ -201,8 +201,7 @@ function charCodes(s: string): string {
   return r.join(",");
 }
 
-// ---------- Schedule (Türkiye saati = UTC+3) ----------
-// Görünmez boşlukları (NBSP, zero-width, vs.) temizleyen yardımcı
+// ---------- Schedule (TR = UTC+3) ----------
 function cleanHM(s: any): string {
   if (s == null) return "";
   return String(s).replace(/[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, "");
@@ -211,7 +210,6 @@ function cleanHM(s: any): string {
 function parseHM(hm: any): number | null {
   if (hm == null) return null;
   const s = cleanHM(hm);
-  // "HH:MM", "HH:MM:SS", "HH:MM:SS.sss" hepsini kabul et
   const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/);
   if (!m) return null;
   const h = +m[1], mi = +m[2];
@@ -228,7 +226,6 @@ function normalizeHM(s: any): string {
   return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
 }
 
-// Türkiye saati: UTC+3, yaz saati uygulaması yok (2016'dan beri sabit)
 function nowInTR() {
   const d = new Date(Date.now() + 3 * 60 * 60 * 1000);
   return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
@@ -567,12 +564,10 @@ function isNumericId(s) {
   }
   return true;
 }
-// Görünmez boşlukları (NBSP, zero-width vs.) temizle
 function cleanHM(s) {
   if (s == null) return "";
   return String(s).replace(/[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, "");
 }
-// "HH:MM" / "HH:MM:SS" / "HH:MM:SS.sss" hepsini kabul et
 function parseHM(hm) {
   if (hm == null) return null;
   var s = cleanHM(hm);
@@ -590,7 +585,6 @@ function normalizeHM(s) {
   var m = mins % 60;
   return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
 }
-// Türkiye saati (UTC+3)
 function nowInTR() {
   var d = new Date(Date.now() + 3 * 60 * 60 * 1000);
   return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
@@ -785,7 +779,6 @@ function renderModal(schedule) {
 
   root.innerHTML = html;
 
-  // Gün toggles
   root.querySelectorAll('[data-day]').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var i = +btn.dataset.slot, d = +btn.dataset.day;
@@ -797,7 +790,6 @@ function renderModal(schedule) {
     });
   });
 
-  // Zaman input: SADECE change dinle (input dinleyicisi kaldırıldı — boş değerle ezmesin)
   root.querySelectorAll('input[data-time]').forEach(function(inp) {
     inp.addEventListener('change', function() {
       var i = +inp.dataset.slot, f = inp.dataset.time;
@@ -807,7 +799,6 @@ function renderModal(schedule) {
     });
   });
 
-  // Slot kaldır
   root.querySelectorAll('[data-rmslot]').forEach(function(btn) {
     btn.addEventListener('click', function() {
       schedule.splice(+btn.dataset.rmslot, 1);
@@ -823,8 +814,6 @@ function renderModal(schedule) {
   el('cancel-modal').addEventListener('click', closeModal);
 
   el('save-modal').addEventListener('click', function() {
-    // ⭐ Kritik: DOM'daki input'lardan taze değerleri oku
-    // (schedule objesine güvenme — input event'i boşaltmış olabilir)
     root.querySelectorAll('input[data-time]').forEach(function(inp) {
       var i = +inp.dataset.slot, f = inp.dataset.time;
       var v = normalizeHM(inp.value);
@@ -832,7 +821,6 @@ function renderModal(schedule) {
       schedule[i][f] = v;
     });
 
-    // Doğrula
     for (var i = 0; i < schedule.length; i++) {
       var s = schedule[i];
       if (!s.days.length) { msg('Aralık ' + (i + 1) + ': en az bir gün seçin', 'error'); return; }
@@ -861,9 +849,9 @@ function closeModal() {
 }
 
 async function load(silent) {
-  var r = await fetch('/api/admin/channels');
+  var r = await fetch('/api/admin/channels', { credentials: 'same-origin', cache: 'no-store' });
   if (r.status === 401) { showLogin(); return; }
-  if (!r.ok) { if (!silent) msg('Kanallar yüklenemedi', 'error'); return; }
+  if (!r.ok) { if (!silent) msg('Kanallar yüklenemedi (HTTP ' + r.status + ')', 'error'); return; }
   var data = await r.json();
   channels = data.map(function(c) {
     return {
@@ -891,20 +879,46 @@ el('login-form').addEventListener('submit', async function(e) {
   e.preventDefault();
   var pw = el('password-input').value;
   var r = await fetch('/api/admin/login', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
     body: JSON.stringify({ password: pw })
   });
-  if (r.ok) {
-    el('password-input').value = '';
-    await load();
-    msg('Hoş geldiniz!');
-  } else {
+  if (!r.ok) {
     var j = await r.json().catch(function(){ return {}; });
     msg(j.error || 'Yanlış şifre', 'error');
+    return;
   }
+  el('password-input').value = '';
+  var check = await fetch('/api/admin/channels', {
+    credentials: 'same-origin',
+    cache: 'no-store'
+  });
+  if (check.status === 401) {
+    msg('Giriş yapıldı ama oturum çerezi tarayıcıya yazılamadı. Tarayıcı çerezleri engelliyor olabilir. Gizli modu kapat, çerez engelini kaldır veya farklı tarayıcı dene.', 'error', 15000);
+    return;
+  }
+  if (!check.ok) {
+    msg('Kanallar yüklenemedi (HTTP ' + check.status + ')', 'error');
+    return;
+  }
+  var data = await check.json();
+  channels = data.map(function(c) {
+    return {
+      id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel',
+      enabled: c.enabled !== false,
+      schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
+        return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) };
+      }),
+    };
+  });
+  render();
+  setDirty(false);
+  showAdmin();
+  msg('Hoş geldiniz!');
 });
 el('logout-btn').addEventListener('click', async function() {
-  await fetch('/api/admin/logout', { method: 'POST' });
+  await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
   channels = [];
   showLogin();
 });
@@ -951,7 +965,9 @@ el('save-btn').addEventListener('click', async function() {
   }
   try {
     var r = await fetch('/api/admin/channels', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
       body: JSON.stringify(channels)
     });
     var bodyText = await r.text();
@@ -969,7 +985,6 @@ el('save-btn').addEventListener('click', async function() {
   } catch (e) { msg('Ağ hatası: ' + e.message, 'error', 15000); }
 });
 
-// TR saati canlı
 setInterval(function() {
   var c = el('tr-clock');
   if (c) c.textContent = '🇹🇷 TR saati: ' + trClockString() + ' (UTC+3)';
@@ -981,7 +996,7 @@ setInterval(function() {
   }
 }, 60000);
 
-fetch('/api/admin/channels').then(function(r) {
+fetch('/api/admin/channels', { credentials: 'same-origin', cache: 'no-store' }).then(function(r) {
   if (r.status === 401) showLogin();
   else if (r.ok) return r.json().then(function(d) {
     channels = d.map(function(c) {
@@ -1009,13 +1024,17 @@ async function handler(request: Request): Promise<Response> {
   if (path === "/api/admin/debug") {
     const pw = Deno.env.get("ADMIN_PASSWORD");
     const chs = await loadChannels();
+    const cookie = getCookie(request, SESSION_COOKIE);
     return new Response(JSON.stringify({
       ADMIN_PASSWORD_set: !!pw,
       storage: "Deno KV",
       channels_count: chs.length,
       timezone: "TR (UTC+3)",
       nowTR: nowInTR(),
-    }, null, 2), { headers: { "Content-Type": "application/json" } });
+      has_session_cookie: !!cookie,
+      cookie_len: cookie ? cookie.length : 0,
+      origin: baseOrigin,
+    }, null, 2), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
   if (path === "/admin" || path === "/admin/") {
@@ -1028,22 +1047,24 @@ async function handler(request: Request): Promise<Response> {
     const pw = Deno.env.get("ADMIN_PASSWORD");
     if (!pw) {
       return new Response(JSON.stringify({ error: "ADMIN_PASSWORD ayarlanmamış" }), {
-        status: 500, headers: { "Content-Type": "application/json" },
+        status: 500, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }
     let body: any;
     try { body = await request.json(); } catch { body = {}; }
     if (!timingSafeEqual(body.password || "", pw)) {
       return new Response(JSON.stringify({ error: "Yanlış şifre" }), {
-        status: 401, headers: { "Content-Type": "application/json" },
+        status: 401, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }
     const session = await createSession(pw);
     const maxAge = Math.floor(SESSION_TTL_MS / 1000);
     return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
       headers: {
         "Content-Type": "application/json",
-        "Set-Cookie": SESSION_COOKIE + "=" + session + "; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=" + maxAge,
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Set-Cookie": SESSION_COOKIE + "=" + session + "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=" + maxAge,
       },
     });
   }
@@ -1052,7 +1073,8 @@ async function handler(request: Request): Promise<Response> {
     return new Response(JSON.stringify({ ok: true }), {
       headers: {
         "Content-Type": "application/json",
-        "Set-Cookie": SESSION_COOKIE + "=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
+        "Cache-Control": "no-store",
+        "Set-Cookie": SESSION_COOKIE + "=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
       },
     });
   }
@@ -1061,7 +1083,7 @@ async function handler(request: Request): Promise<Response> {
     const ok = await requireAuth(request);
     if (!ok) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { "Content-Type": "application/json" },
+        status: 401, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }
     if (request.method === "GET") {
@@ -1076,12 +1098,12 @@ async function handler(request: Request): Promise<Response> {
       let channels: any[];
       try { channels = await request.json(); } catch (e: any) {
         return new Response(JSON.stringify({ error: "JSON parse hatası", detail: e.message }), {
-          status: 400, headers: { "Content-Type": "application/json" },
+          status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       }
       if (!Array.isArray(channels)) {
         return new Response(JSON.stringify({ error: "Geçersiz veri: dizi bekleniyor" }), {
-          status: 400, headers: { "Content-Type": "application/json" },
+          status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       }
       const idMap = new Map<string, number[]>();
@@ -1090,13 +1112,13 @@ async function handler(request: Request): Promise<Response> {
         const id = String((c && c.id) || "").trim();
         if (!isNumericId(id)) {
           return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": ID sayısal olmalı" }), {
-            status: 400, headers: { "Content-Type": "application/json" },
+            status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
           });
         }
         const name = String((c && c.name) || "").trim();
         if (!name) {
           return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": İsim zorunlu" }), {
-            status: 400, headers: { "Content-Type": "application/json" },
+            status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
           });
         }
         if (!idMap.has(id)) idMap.set(id, []);
@@ -1106,7 +1128,7 @@ async function handler(request: Request): Promise<Response> {
       if (dupes.length) {
         const detail = dupes.map(([id, rows]) => '"' + id + '" (satır ' + rows.join(', ') + ')').join(' | ');
         return new Response(JSON.stringify({ error: "Tekrarlanan ID: " + detail }), {
-          status: 400, headers: { "Content-Type": "application/json" },
+          status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       }
       const cleaned: Channel[] = [];
@@ -1117,7 +1139,7 @@ async function handler(request: Request): Promise<Response> {
         for (const s of rawSchedule) {
           if (!Array.isArray(s.days) || s.days.length === 0) {
             return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": program aralığında gün seçin" }), {
-              status: 400, headers: { "Content-Type": "application/json" },
+              status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
             });
           }
           const st = normalizeHM(s.start);
@@ -1126,7 +1148,7 @@ async function handler(request: Request): Promise<Response> {
             return new Response(JSON.stringify({
               error: "Satır " + (i + 1) + ": saat SS:DD formatında olmalı (gelen: " + JSON.stringify(s.start) + " / " + JSON.stringify(s.end) + ")"
             }), {
-              status: 400, headers: { "Content-Type": "application/json" },
+              status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
             });
           }
           cleanSchedule.push({
@@ -1147,7 +1169,7 @@ async function handler(request: Request): Promise<Response> {
       await persistChannels(cleaned);
       for (const id of idMap.keys()) purgeChannelCache(id);
       return new Response(JSON.stringify({ ok: true, count: cleaned.length, persistent: true }), {
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
     }
     return new Response("Method not allowed", { status: 405 });
