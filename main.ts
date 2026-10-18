@@ -1,5 +1,5 @@
 // ============================================================
-// Matchora Proxy Worker v16 — Full Debug
+// Matchora Proxy Worker v17 — Optimized (KV removed)
 // ============================================================
 
 const MATCHORA_BASE = "https://matchora.to";
@@ -28,7 +28,7 @@ const DEFAULT_CHANNELS = [
   { id: "913379", name: "S Sport-913379", tvgId: "ssport.tr", group: "S Sport" },
   { id: "913380", name: "S Sport 2-913380", tvgId: "ssport2.tr", group: "S Sport" },
   { id: "913401", name: "TRT Spor", tvgId: "trtspor.tr", group: "TRT" },
-  { id: "913405", name: "TRT Spor Y\u0131ld\u0131z", tvgId: "trtsporyildiz.tr", group: "TRT" },
+  { id: "913405", name: "TRT Spor Yıldız", tvgId: "trtsporyildiz.tr", group: "TRT" },
   { id: "913403", name: "A Spor-03", tvgId: "aspor.tr", group: "Ulusal" },
   { id: "913402", name: "A Spor-02", tvgId: "aspor.tr", group: "Ulusal" },
   { id: "913401", name: "A Spor-01", tvgId: "aspor.tr", group: "Ulusal" },
@@ -37,8 +37,8 @@ const DEFAULT_CHANNELS = [
   { id: "913374", name: "Sports TV", tvgId: "sportstv.tr", group: "Ulusal" },
   { id: "913367", name: "TJK TV", tvgId: "tjktv.tr", group: "Ulusal" },
   { id: "1913944", name: "Ekol Sports", tvgId: "ekolsports.tr", group: "Ulusal" },
-  { id: "1639118", name: "Haber T\xFCrk Spor", tvgId: "haberturkspor.tr", group: "Ulusal" },
-  { id: "2142839", name: "\u0130dman TV", tvgId: "idmantv.tr", group: "Ulusal" },
+  { id: "1639118", name: "Haber Türk Spor", tvgId: "haberturkspor.tr", group: "Ulusal" },
+  { id: "2142839", name: "İdman TV", tvgId: "idmantv.tr", group: "Ulusal" },
   { id: "1980495", name: "Tabii", tvgId: "tabii.tr", group: "Ulusal" },
   { id: "913396", name: "EXXEN Spor 1", tvgId: "exxen1.tr", group: "EXXEN" },
   { id: "913394", name: "EXXEN Spor 2", tvgId: "exxen2.tr", group: "EXXEN" },
@@ -50,13 +50,18 @@ const DEFAULT_CHANNELS = [
 ];
 
 const READY_MAX_ATTEMPTS = 10;
-const READY_DELAY_MS = 3000;
-const CAPACITY_DELAY_MS = 5000;
-const MANIFEST_CACHE_MS = 1500;
+const READY_DELAY_MS = 2500;
+const CAPACITY_DELAY_MS = 4000;
+const MANIFEST_CACHE_MS = 800;
+const SEGMENT_CACHE_MS = 30000;
+const TOKEN_SAFETY_MS = 60000;
 
 const tokenCache = {};
 const manifestCache = {};
 const pendingFetch = {};
+
+// In-memory channel store (KV yok)
+let channelsStore = DEFAULT_CHANNELS.map(c => ({ ...c }));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -123,21 +128,12 @@ function charCodes(s) {
   return r.join(",");
 }
 
-async function getChannels(env) {
-  try {
-    if (env.CHANNELS_KV) {
-      const data = await env.CHANNELS_KV.get("channels", "json");
-      if (Array.isArray(data)) return data;
-      await env.CHANNELS_KV.put("channels", JSON.stringify(DEFAULT_CHANNELS));
-      return DEFAULT_CHANNELS;
-    }
-  } catch (e) { console.error("KV read error:", e); }
-  return DEFAULT_CHANNELS;
+function getChannels() {
+  return channelsStore;
 }
 
-async function saveChannels(env, channels) {
-  if (!env.CHANNELS_KV) throw new Error("CHANNELS_KV binding tanımlı değil. wrangler.toml'u kontrol edin.");
-  await env.CHANNELS_KV.put("channels", JSON.stringify(channels));
+function saveChannels(channels) {
+  channelsStore = channels;
 }
 
 async function handleLogin(request, env) {
@@ -175,24 +171,14 @@ async function handleLogout() {
   });
 }
 
-async function handleListChannels(env) {
-  const channels = await getChannels(env);
-  return new Response(JSON.stringify(channels), {
+async function handleListChannels() {
+  return new Response(JSON.stringify(getChannels()), {
     headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
   });
 }
 
-async function handleSaveChannels(request, env) {
+async function handleSaveChannels(request) {
   try {
-    if (!env.CHANNELS_KV) {
-      return new Response(JSON.stringify({
-        error: "KV binding yok",
-        detail: "wrangler.toml'da [[kv_namespaces]] bloğu eksik veya deploy sırasında hata oluştu. 'npx wrangler kv namespace list' ile ID'nizi doğrulayın."
-      }), {
-        status: 500, headers: { "Content-Type": "application/json" },
-      });
-    }
-
     let channels;
     try { channels = await request.json(); } catch (e) {
       return new Response(JSON.stringify({
@@ -245,9 +231,13 @@ async function handleSaveChannels(request, env) {
       group: (c && c.group) ? String(c.group).trim() : "Genel",
     }));
 
-    await saveChannels(env, cleaned);
+    saveChannels(cleaned);
 
-    for (const id of idMap.keys()) delete manifestCache[id];
+    // Manifest cache temizle
+    for (const id of idMap.keys()) {
+      delete manifestCache[id + ":m"];
+      delete manifestCache[id + ":p"];
+    }
 
     return new Response(JSON.stringify({ ok: true, count: cleaned.length }), {
       headers: { "Content-Type": "application/json" },
@@ -267,9 +257,13 @@ async function fetchFreshToken(channelId) {
   const embedUrl = MATCHORA_BASE + "/embed/channel/" + channelId;
   for (let attempt = 1; attempt <= READY_MAX_ATTEMPTS; attempt++) {
     try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 8000);
       const resp = await fetch(playApi, {
         headers: { "User-Agent": UA, Referer: embedUrl, Origin: MATCHORA_BASE, Accept: "application/json, */*" },
+        signal: ctrl.signal,
       });
+      clearTimeout(to);
       const body = await resp.text();
       if (!resp.ok) {
         if (attempt < READY_MAX_ATTEMPTS) { await sleep(READY_DELAY_MS); continue; }
@@ -278,7 +272,7 @@ async function fetchFreshToken(channelId) {
       const json = JSON.parse(body);
       if (json.ready && json.url && !json.url.includes("%3C")) {
         const streamUrl = json.url.replace(/\\\//g, "/");
-        const expiresAt = Date.now() + (json.expires_in || 600) * 1000 - 30000;
+        const expiresAt = Date.now() + (json.expires_in || 600) * 1000 - TOKEN_SAFETY_MS;
         tokenCache[channelId] = { streamUrl, expiresAt };
         return tokenCache[channelId];
       }
@@ -295,8 +289,9 @@ async function fetchFreshToken(channelId) {
 }
 
 async function getToken(channelId, force) {
+  if (force) delete tokenCache[channelId];
   const cache = tokenCache[channelId];
-  if (!force && cache && cache.expiresAt > Date.now() + 10000) return cache;
+  if (cache && cache.expiresAt > Date.now()) return cache;
   if (pendingFetch[channelId]) return await pendingFetch[channelId];
   pendingFetch[channelId] = (async () => {
     try { return await fetchFreshToken(channelId); }
@@ -306,10 +301,15 @@ async function getToken(channelId, force) {
 }
 
 async function proxyM3U8(streamUrl, channelId, baseOrigin) {
-  const cached = manifestCache[channelId];
+  const cacheKey = channelId + ":" + (streamUrl.includes("master") ? "m" : "p");
+  const cached = manifestCache[cacheKey];
   if (cached && cached.expiresAt > Date.now()) {
     return new Response(cached.body, {
-      headers: { "Content-Type": "application/vnd.apple.mpegurl", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache" },
+      headers: {
+        "Content-Type": "application/vnd.apple.mpegurl",
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-cache",
+      },
     });
   }
   const resp = await fetch(streamUrl, {
@@ -319,11 +319,10 @@ async function proxyM3U8(streamUrl, channelId, baseOrigin) {
   const text = await resp.text();
   const baseUrl = new URL(streamUrl);
   const out = [];
-  let hasStart = false, hasIndependent = false;
+  let hasIndependent = false;
   for (const line of text.split("\n")) {
     const tr = line.trim();
     if (!tr) { out.push(line); continue; }
-    if (tr.startsWith("#EXT-X-START")) hasStart = true;
     if (tr.startsWith("#EXT-X-INDEPENDENT-SEGMENTS")) hasIndependent = true;
     if (tr.startsWith("#") && tr.includes('URI="')) {
       out.push(tr.replace(/URI="([^"]+)"/g, (_, u) => {
@@ -340,50 +339,58 @@ async function proxyM3U8(streamUrl, channelId, baseOrigin) {
       out.push(baseOrigin + "/seg?c=" + channelId + "&u=" + encodeURIComponent(abs));
     } catch { out.push(line); }
   }
-  const extras = [];
-  if (!hasIndependent) extras.push("#EXT-X-INDEPENDENT-SEGMENTS");
-  if (!hasStart) extras.push("#EXT-X-START:TIME-OFFSET=-6.0,PRECISE=YES");
-  if (extras.length) {
+  if (!hasIndependent) {
     const idx = out.findIndex((l) => l.trim().startsWith("#EXTM3U"));
-    out.splice(idx >= 0 ? idx + 1 : 0, 0, ...extras);
+    out.splice(idx >= 0 ? idx + 1 : 0, 0, "#EXT-X-INDEPENDENT-SEGMENTS");
   }
   const finalBody = out.join("\n");
-  manifestCache[channelId] = { body: finalBody, expiresAt: Date.now() + MANIFEST_CACHE_MS };
+  manifestCache[cacheKey] = { body: finalBody, expiresAt: Date.now() + MANIFEST_CACHE_MS };
   return new Response(finalBody, {
-    headers: { "Content-Type": "application/vnd.apple.mpegurl", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache" },
+    headers: {
+      "Content-Type": "application/vnd.apple.mpegurl",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-cache",
+    },
   });
 }
 
 async function handleSegment(channelId, originalUrl) {
   const cache = await getToken(channelId);
-  const orig = new URL(originalUrl);
-  const cur = new URL(cache.streamUrl);
-  const newToken = cur.searchParams.get("t");
-  const oldToken = orig.searchParams.get("t");
-  if (newToken && oldToken && oldToken !== newToken) orig.searchParams.set("t", newToken);
+  const buildUrl = (baseStreamUrl) => {
+    const orig = new URL(originalUrl);
+    const cur = new URL(baseStreamUrl);
+    const newToken = cur.searchParams.get("t");
+    const oldToken = orig.searchParams.get("t");
+    if (newToken && oldToken && oldToken !== newToken) orig.searchParams.set("t", newToken);
+    return orig.href;
+  };
 
-  const resp = await fetch(orig.href, {
-    headers: { "User-Agent": UA, Referer: MATCHORA_BASE + "/", Origin: MATCHORA_BASE },
-  });
-  if (!resp.ok && (resp.status === 403 || resp.status === 401)) {
-    await getToken(channelId, true);
-    const c2 = tokenCache[channelId];
-    const o2 = new URL(originalUrl);
-    const t2 = new URL(c2.streamUrl).searchParams.get("t");
-    if (t2) o2.searchParams.set("t", t2);
-    const r2 = await fetch(o2.href, {
-      headers: { "User-Agent": UA, Referer: MATCHORA_BASE + "/", Origin: MATCHORA_BASE },
-    });
-    if (r2.ok) {
-      return new Response(r2.body, {
-        headers: { "Content-Type": r2.headers.get("Content-Type") || "video/mp2t", "Access-Control-Allow-Origin": "*" },
+  const doFetch = async (href) => {
+    const ctrl = new AbortController();
+    const to = setTimeout(() => ctrl.abort(), 12000);
+    try {
+      return await fetch(href, {
+        headers: { "User-Agent": UA, Referer: MATCHORA_BASE + "/", Origin: MATCHORA_BASE },
+        signal: ctrl.signal,
       });
-    }
+    } finally { clearTimeout(to); }
+  };
+
+  let resp = await doFetch(buildUrl(cache.streamUrl));
+  if (!resp.ok && (resp.status === 403 || resp.status === 401)) {
+    const fresh = await getToken(channelId, true);
+    resp = await doFetch(buildUrl(fresh.streamUrl));
   }
   if (!resp.ok) return new Response("Segment " + resp.status, { status: resp.status });
-  return new Response(resp.body, {
-    headers: { "Content-Type": resp.headers.get("Content-Type") || "video/mp2t", "Access-Control-Allow-Origin": "*" },
-  });
+
+  const headers = {
+    "Content-Type": resp.headers.get("Content-Type") || "video/mp2t",
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=" + (SEGMENT_CACHE_MS / 1000),
+  };
+  const len = resp.headers.get("Content-Length");
+  if (len) headers["Content-Length"] = len;
+  return new Response(resp.body, { headers });
 }
 
 function buildM3U(channels, baseOrigin) {
@@ -723,7 +730,7 @@ el('save-btn').addEventListener('click', async function() {
     if (r.ok) {
       render();
       setDirty(false);
-      msg('✅ Kaydedildi! (' + channels.length + ' kanal)', 'success');
+      msg('✅ Kaydedildi! (' + channels.length + ' kanal) — Not: değişiklikler worker yeniden başlayınca sıfırlanır', 'success', 8000);
     } else {
       var errMsg = j.error || 'Kaydetme başarısız';
       var detail = j.detail ? (' — ' + j.detail) : '';
@@ -752,21 +759,9 @@ export default {
       const result = {
         ADMIN_PASSWORD_set: !!env.ADMIN_PASSWORD,
         ADMIN_PASSWORD_length: env.ADMIN_PASSWORD ? env.ADMIN_PASSWORD.length : 0,
-        CHANNELS_KV_bound: !!env.CHANNELS_KV,
+        channels_count: channelsStore.length,
+        storage: "in-memory (KV yok)",
       };
-      try {
-        if (env.CHANNELS_KV) {
-          const existing = await env.CHANNELS_KV.get("channels", "json");
-          result.kv_read_ok = true;
-          result.kv_channel_count = Array.isArray(existing) ? existing.length : "NOT_ARRAY";
-          const testKey = "_test_" + Date.now();
-          await env.CHANNELS_KV.put(testKey, "ok", { expirationTtl: 60 });
-          result.kv_write_ok = true;
-          await env.CHANNELS_KV.delete(testKey);
-        }
-      } catch (e) {
-        result.kv_error = e.message;
-      }
       return new Response(JSON.stringify(result, null, 2), {
         headers: { "Content-Type": "application/json" },
       });
@@ -787,12 +782,12 @@ export default {
           status: 401, headers: { "Content-Type": "application/json" },
         });
       }
-      if (request.method === "GET") return await handleListChannels(env);
-      if (request.method === "POST") return await handleSaveChannels(request, env);
+      if (request.method === "GET") return await handleListChannels();
+      if (request.method === "POST") return await handleSaveChannels(request);
       return new Response("Method not allowed", { status: 405 });
     }
 
-    const channels = await getChannels(env);
+    const channels = getChannels();
 
     if (path === "/playlist.m3u" || path === "/playlist") {
       return new Response(buildM3U(channels, baseOrigin), {
@@ -816,7 +811,9 @@ export default {
       const channelId = playMatch ? playMatch[1] : (channels[0] && channels[0].id);
       if (!channelId) return new Response("Kanal yok", { status: 400 });
       try {
-        const t = await getToken(channelId);
+        let t;
+        try { t = await getToken(channelId); }
+        catch (e) { t = await getToken(channelId, true); }
         return await proxyM3U8(t.streamUrl, channelId, baseOrigin);
       } catch (e) {
         return new Response(JSON.stringify({ error: e.message }), {
@@ -826,6 +823,16 @@ export default {
     }
 
     if (path === "/seg") {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "86400",
+          },
+        });
+      }
       const c = url.searchParams.get("c");
       const u = url.searchParams.get("u");
       if (!c || !u) return new Response("Missing params", { status: 400 });
@@ -852,7 +859,8 @@ export default {
       const c = url.searchParams.get("c") || (channels[0] && channels[0].id);
       try {
         await getToken(c, true);
-        delete manifestCache[c];
+        delete manifestCache[c + ":m"];
+        delete manifestCache[c + ":p"];
         return new Response(JSON.stringify({ ok: true, channelId: c }, null, 2), {
           headers: { "Content-Type": "application/json" },
         });
