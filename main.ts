@@ -77,11 +77,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- Deno KV ----------
 let kvInstance: Deno.Kv | null = null;
-
 function getKv(): Promise<Deno.Kv> {
-  if (!kvInstance) {
-    kvInstance = Deno.openKv() as any;
-  }
+  if (!kvInstance) kvInstance = Deno.openKv() as any;
   return Promise.resolve(kvInstance as any);
 }
 
@@ -118,7 +115,6 @@ async function persistChannels(channels: Channel[]) {
   }
 }
 
-// ---------- Cron ----------
 Deno.cron("purge-closed-channels", "* * * * *", async () => {
   try {
     const channels = await loadChannels(true);
@@ -133,9 +129,7 @@ Deno.cron("purge-closed-channels", "* * * * *", async () => {
       }
     }
     if (purged > 0) console.log(`[cron] ${purged} kanal önbelleği temizlendi`);
-  } catch (e) {
-    console.error("[cron] hata:", e);
-  }
+  } catch (e) { console.error("[cron] hata:", e); }
 });
 
 // ---------- Auth ----------
@@ -146,29 +140,22 @@ function timingSafeEqual(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-
 function getCookie(request: Request, name: string): string | null {
   const cookie = request.headers.get("Cookie") || "";
   const match = cookie.match(new RegExp("(?:^|;\\s*)" + name + "=([^;]+)"));
   return match ? match[1] : null;
 }
-
 async function hmacSign(payload: string, secret: string): Promise<string> {
   const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw", enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" }, false, ["sign"]
-  );
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
-
 async function createSession(secret: string): Promise<string> {
   const payload = btoa(JSON.stringify({ exp: Date.now() + SESSION_TTL_MS }));
   const sig = await hmacSign(payload, secret);
   return payload + "." + sig;
 }
-
 async function verifySession(cookie: string | null, secret: string): Promise<boolean> {
   if (!cookie || !cookie.includes(".")) return false;
   const parts = cookie.split(".");
@@ -179,13 +166,11 @@ async function verifySession(cookie: string | null, secret: string): Promise<boo
     return typeof data.exp === "number" && data.exp > Date.now();
   } catch { return false; }
 }
-
 async function requireAuth(request: Request): Promise<boolean> {
   const pw = Deno.env.get("ADMIN_PASSWORD");
   if (!pw) return false;
   return await verifySession(getCookie(request, SESSION_COOKIE), pw);
 }
-
 function isNumericId(s: string): boolean {
   if (typeof s !== "string" || s.length === 0) return false;
   for (let i = 0; i < s.length; i++) {
@@ -195,12 +180,11 @@ function isNumericId(s: string): boolean {
   return true;
 }
 
-// ---------- Schedule (TR = UTC+3) ----------
+// ---------- Schedule ----------
 function cleanHM(s: any): string {
   if (s == null) return "";
   return String(s).replace(/[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, "");
 }
-
 function parseHM(hm: any): number | null {
   if (hm == null) return null;
   const s = cleanHM(hm);
@@ -210,7 +194,6 @@ function parseHM(hm: any): number | null {
   if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
   return h * 60 + mi;
 }
-
 function normalizeHM(s: any): string {
   const cleaned = cleanHM(s);
   const mins = parseHM(cleaned);
@@ -219,25 +202,21 @@ function normalizeHM(s: any): string {
   const m = mins % 60;
   return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
 }
-
 function nowInTR() {
   const d = new Date(Date.now() + 3 * 60 * 60 * 1000);
   return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
 }
-
 function isChannelLiveNow(channel: Channel, now?: { day: number; minutes: number }): boolean {
   now = now || nowInTR();
   if (!channel || channel.enabled === false) return false;
   const schedule = channel.schedule;
   if (!Array.isArray(schedule) || schedule.length === 0) return true;
-
   for (const slot of schedule) {
     if (!slot || !Array.isArray(slot.days) || slot.days.length === 0) continue;
     const start = parseHM(slot.start);
     const end = parseHM(slot.end);
     if (start === null || end === null) continue;
     if (!slot.days.includes(now.day)) continue;
-
     if (start <= end) {
       if (now.minutes >= start && now.minutes < end) return true;
     } else {
@@ -253,7 +232,6 @@ function isChannelLiveNow(channel: Channel, now?: { day: number; minutes: number
   }
   return false;
 }
-
 function purgeChannelCache(channelId: string) {
   delete tokenCache[channelId];
   delete manifestCache[channelId + ":m"];
@@ -286,9 +264,7 @@ async function fetchFreshToken(channelId: string) {
         return tokenCache[channelId];
       }
       const reason = json.reason || "unknown";
-      if (attempt < READY_MAX_ATTEMPTS) {
-        await sleep(reason === "capacity" ? CAPACITY_DELAY_MS : READY_DELAY_MS);
-      }
+      if (attempt < READY_MAX_ATTEMPTS) await sleep(reason === "capacity" ? CAPACITY_DELAY_MS : READY_DELAY_MS);
     } catch (e) {
       if (attempt < READY_MAX_ATTEMPTS) await sleep(READY_DELAY_MS);
       else throw e;
@@ -296,7 +272,6 @@ async function fetchFreshToken(channelId: string) {
   }
   throw new Error("Yayın hazır değil");
 }
-
 async function getToken(channelId: string, force = false) {
   if (force) delete tokenCache[channelId];
   const cache = tokenCache[channelId];
@@ -308,7 +283,6 @@ async function getToken(channelId: string, force = false) {
   })();
   return await pendingFetch[channelId];
 }
-
 async function proxyM3U8(streamUrl: string, channelId: string, baseOrigin: string) {
   const cacheKey = channelId + ":" + (streamUrl.includes("master") ? "m" : "p");
   const cached = manifestCache[cacheKey];
@@ -354,7 +328,6 @@ async function proxyM3U8(streamUrl: string, channelId: string, baseOrigin: strin
     headers: { "Content-Type": "application/vnd.apple.mpegurl", "Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache" },
   });
 }
-
 async function handleSegment(channelId: string, originalUrl: string) {
   const cache = await getToken(channelId);
   const buildUrl = (baseStreamUrl: string) => {
@@ -390,7 +363,6 @@ async function handleSegment(channelId: string, originalUrl: string) {
   if (len) headers["Content-Length"] = len;
   return new Response(resp.body, { headers });
 }
-
 function buildM3U(channels: Channel[], baseOrigin: string): string {
   const lines = ["#EXTM3U"];
   const now = nowInTR();
@@ -404,7 +376,6 @@ function buildM3U(channels: Channel[], baseOrigin: string): string {
   lines.push("");
   return lines.join("\n");
 }
-
 async function fetchTurkishChannels(): Promise<Channel[]> {
   const resp = await fetch(MATCHORA_BASE + "/api/v1/channels", {
     headers: { "User-Agent": UA, Referer: MATCHORA_BASE, Accept: "application/json" },
@@ -425,14 +396,8 @@ async function fetchTurkishChannels(): Promise<Channel[]> {
   return out;
 }
 
-// ---------- Admin HTML ----------
-const ADMIN_HTML = `<!DOCTYPE html>
-<html lang="tr">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Matchora Proxy — Yönetim</title>
-<style>
+// ---------- Admin HTML (JS ayrı string'de tutuluyor, parse güvenli) ----------
+const ADMIN_CSS = `
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:20px;background:#0f0f1a;color:#e5e7eb;min-height:100vh}
 .hidden{display:none!important}
@@ -498,546 +463,410 @@ td input.invalid{border-color:#dc2626;background:#2a0f0f}
 .badge.gray{background:#374151;color:#9ca3af}
 .badge.orange{background:#7c2d12;color:#fdba74}
 #js-error-banner{position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:12px;z-index:9999;font-family:monospace;font-size:12px;display:none}
+#debug-log{position:fixed;bottom:10px;left:10px;right:10px;max-height:120px;overflow:auto;background:rgba(0,0,0,.85);color:#10b981;font-family:monospace;font-size:11px;padding:8px;border-radius:6px;z-index:9998;display:none;border:1px solid #333}
 @media(max-width:768px){table{font-size:11px}th,td{padding:6px}header h1{font-size:16px}.status-msg{max-width:90vw}}
-</style>
-</head>
-<body>
+`;
 
-<div id="js-error-banner"></div>
+const ADMIN_JS = [
+  "window.addEventListener('error', function(e) {",
+  "  var b = document.getElementById('js-error-banner');",
+  "  if (b) { b.style.display = 'block'; b.textContent = 'JS HATASI: ' + (e.message || '?') + ' @ ' + (e.lineno || '?'); }",
+  "});",
+  "function dbg(m) {",
+  "  var d = document.getElementById('debug-log');",
+  "  if (d) { d.style.display = 'block'; d.textContent += m + '\\n'; d.scrollTop = d.scrollHeight; }",
+  "  console.log('[DBG] ' + m);",
+  "}",
+  "var channels = [];",
+  "var editingIdx = -1;",
+  "function el(id) { return document.getElementById(id); }",
+  "function esc(s) { return String(s == null ? '' : s).replace(/[&<>\"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]; }); }",
+  "var DAYS = ['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];",
+  "function isNumericId(s) {",
+  "  if (typeof s !== 'string' || s.length === 0) return false;",
+  "  for (var i = 0; i < s.length; i++) { var c = s.charCodeAt(i); if (c < 48 || c > 57) return false; }",
+  "  return true;",
+  "}",
+  "function cleanHM(s) {",
+  "  if (s == null) return '';",
+  "  return String(s).replace(/[\\s\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000\\uFEFF]/g, '');",
+  "}",
+  "function parseHM(hm) {",
+  "  if (hm == null) return null;",
+  "  var s = cleanHM(hm);",
+  "  var m = s.match(/^(\\d{1,2}):(\\d{2})(?::\\d{2}(?:\\.\\d+)?)?$/);",
+  "  if (!m) return null;",
+  "  var h = +m[1], mi = +m[2];",
+  "  if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;",
+  "  return h * 60 + mi;",
+  "}",
+  "function normalizeHM(s) {",
+  "  var cleaned = cleanHM(s);",
+  "  var mins = parseHM(cleaned);",
+  "  if (mins === null) return cleaned;",
+  "  var h = Math.floor(mins / 60);",
+  "  var m = mins % 60;",
+  "  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');",
+  "}",
+  "function nowInTR() {",
+  "  var d = new Date(Date.now() + 3 * 60 * 60 * 1000);",
+  "  return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };",
+  "}",
+  "function trClockString() {",
+  "  var d = new Date(Date.now() + 3 * 60 * 60 * 1000);",
+  "  var pad = function(n){return String(n).padStart(2,'0');};",
+  "  return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());",
+  "}",
+  "function isChannelLiveNow(ch, now) {",
+  "  now = now || nowInTR();",
+  "  if (!ch || ch.enabled === false) return false;",
+  "  var schedule = ch.schedule;",
+  "  if (!Array.isArray(schedule) || schedule.length === 0) return true;",
+  "  for (var i = 0; i < schedule.length; i++) {",
+  "    var s = schedule[i];",
+  "    if (!s || !Array.isArray(s.days) || s.days.length === 0) continue;",
+  "    var start = parseHM(s.start), end = parseHM(s.end);",
+  "    if (start === null || end === null) continue;",
+  "    if (s.days.indexOf(now.day) === -1) continue;",
+  "    if (start <= end) {",
+  "      if (now.minutes >= start && now.minutes < end) return true;",
+  "    } else {",
+  "      if (now.minutes >= start) return true;",
+  "      var prevDay = (now.day + 6) % 7;",
+  "      for (var j = 0; j < schedule.length; j++) {",
+  "        var s2 = schedule[j];",
+  "        if (!s2 || !Array.isArray(s2.days) || s2.days.indexOf(prevDay) === -1) continue;",
+  "        var st2 = parseHM(s2.start), en2 = parseHM(s2.end);",
+  "        if (st2 === null || en2 === null) continue;",
+  "        if (st2 > en2 && now.minutes < en2) return true;",
+  "      }",
+  "    }",
+  "  }",
+  "  return false;",
+  "}",
+  "function setDirty(v) {",
+  "  var b = el('save-btn'); if (b) b.disabled = !v;",
+  "  var d = el('dirty-indicator'); if (d) d.textContent = v ? '⚠ Kaydedilmemiş değişiklikler' : '';",
+  "}",
+  "function msg(text, type, duration) {",
+  "  type = type || 'success'; duration = duration || 5000;",
+  "  var d = document.createElement('div');",
+  "  d.className = 'status-msg ' + type;",
+  "  d.textContent = text;",
+  "  document.body.appendChild(d);",
+  "  setTimeout(function() { d.remove(); }, duration);",
+  "  dbg(text);",
+  "}",
+  "function updateCount() {",
+  "  var c = el('channel-count');",
+  "  if (c) c.textContent = channels.length ? '(' + channels.length + ' kanal)' : '(boş)';",
+  "}",
+  "function scheduleSummary(schedule) {",
+  "  if (!Array.isArray(schedule) || schedule.length === 0) return '<span class=\"badge gray\">program yok</span>';",
+  "  return schedule.map(function(s) {",
+  "    var d = (s.days || []).map(function(x){return DAYS[x];}).join(',');",
+  "    return '<span class=\"badge orange\" style=\"margin:1px\">' + d + ' ' + esc(s.start) + '-' + esc(s.end) + '</span>';",
+  "  }).join(' ');",
+  "}",
+  "function statusBadge(ch, now) {",
+  "  if (ch.enabled === false) return '<span class=\"dot off\"></span><span class=\"badge gray\">kapalı</span>';",
+  "  if (!Array.isArray(ch.schedule) || ch.schedule.length === 0) return '<span class=\"dot on\"></span><span class=\"badge green\">açık</span>';",
+  "  return isChannelLiveNow(ch, now)",
+  "    ? '<span class=\"dot sched-on\"></span><span class=\"badge orange\">programda açık</span>'",
+  "    : '<span class=\"dot off\"></span><span class=\"badge gray\">programda kapalı</span>';",
+  "}",
+  "function render() {",
+  "  var tb = el('channels-body');",
+  "  if (!tb) { dbg('HATA: channels-body yok'); return; }",
+  "  tb.innerHTML = '';",
+  "  updateCount();",
+  "  var now = nowInTR();",
+  "  if (!channels.length) {",
+  "    tb.innerHTML = '<tr><td colspan=\"8\" class=\"empty\">Henüz kanal yok.</td></tr>';",
+  "    return;",
+  "  }",
+  "  channels.forEach(function(ch, i) {",
+  "    var tr = document.createElement('tr');",
+  "    tr.innerHTML =",
+  "      '<td>' + statusBadge(ch, now) + '</td>' +",
+  "      '<td><label class=\"toggle\"><input type=\"checkbox\" data-en=\"' + i + '\"' + (ch.enabled !== false ? ' checked' : '') + '><span></span></label></td>' +",
+  "      '<td><input type=\"text\" value=\"' + esc(ch.id) + '\" data-f=\"id\" data-i=\"' + i + '\"></td>' +",
+  "      '<td><input type=\"text\" value=\"' + esc(ch.name) + '\" data-f=\"name\" data-i=\"' + i + '\"></td>' +",
+  "      '<td><input type=\"text\" value=\"' + esc(ch.tvgId || '') + '\" data-f=\"tvgId\" data-i=\"' + i + '\"></td>' +",
+  "      '<td><input type=\"text\" value=\"' + esc(ch.group || '') + '\" data-f=\"group\" data-i=\"' + i + '\"></td>' +",
+  "      '<td>' + scheduleSummary(ch.schedule) + '</td>' +",
+  "      '<td class=\"actions\">' +",
+  "        '<button class=\"secondary small\" data-sched=\"' + i + '\">🕐 Program</button>' +",
+  "        '<button class=\"danger small\" data-del=\"' + i + '\">Sil</button>' +",
+  "      '</td>';",
+  "    tb.appendChild(tr);",
+  "  });",
+  "  tb.querySelectorAll('[data-en]').forEach(function(tg) {",
+  "    tg.addEventListener('change', function(e) {",
+  "      var i = +e.target.dataset.en;",
+  "      channels[i].enabled = e.target.checked;",
+  "      setDirty(true); render();",
+  "    });",
+  "  });",
+  "  tb.querySelectorAll('input[data-f]').forEach(function(inp) {",
+  "    inp.addEventListener('input', function(e) {",
+  "      var i = +e.target.dataset.i, f = e.target.dataset.f;",
+  "      channels[i][f] = e.target.value;",
+  "      setDirty(true);",
+  "    });",
+  "    inp.addEventListener('blur', function(e) {",
+  "      var i = +e.target.dataset.i, f = e.target.dataset.f;",
+  "      var trimmed = String(e.target.value || '').trim();",
+  "      if (trimmed !== e.target.value) { e.target.value = trimmed; channels[i][f] = trimmed; }",
+  "    });",
+  "  });",
+  "  tb.querySelectorAll('[data-del]').forEach(function(b) {",
+  "    b.addEventListener('click', function() {",
+  "      var i = +b.dataset.del;",
+  "      if (confirm('\"' + channels[i].name + '\" silinsin mi?')) {",
+  "        channels.splice(i, 1); render(); setDirty(true);",
+  "      }",
+  "    });",
+  "  });",
+  "  tb.querySelectorAll('[data-sched]').forEach(function(b) {",
+  "    b.addEventListener('click', function() { openScheduleModal(+b.dataset.sched); });",
+  "  });",
+  "}",
+  "function openScheduleModal(idx) {",
+  "  editingIdx = idx;",
+  "  var schedule = JSON.parse(JSON.stringify(channels[idx].schedule || []));",
+  "  schedule.forEach(function(s) { s.start = normalizeHM(s.start); s.end = normalizeHM(s.end); });",
+  "  renderModal(schedule);",
+  "}",
+  "function renderModal(schedule) {",
+  "  var root = el('modal-root');",
+  "  if (!root) return;",
+  "  var html = '<div class=\"modal-bg\" id=\"modal-bg\"><div class=\"modal\">' +",
+  "    '<h2>🕐 Program — ' + esc(channels[editingIdx].name) + '</h2>' +",
+  "    '<p style=\"font-size:12px;color:#9ca3af;margin:0 0 16px\">Saatler <b>Türkiye saatiyle (UTC+3)</b> girilir.</p>' +",
+  "    '<div id=\"slot-list\">';",
+  "  if (!schedule.length) html += '<div style=\"color:#6b7280;padding:20px;text-align:center;font-size:13px\">Program yok. \"Aralık Ekle\" ile başla.</div>';",
+  "  schedule.forEach(function(s, i) {",
+  "    html += '<div class=\"slot\"><div class=\"slot-head\"><strong>Aralık ' + (i+1) + '</strong><button class=\"danger small\" data-rmslot=\"' + i + '\">Kaldır</button></div><div class=\"days\">';",
+  "    for (var d = 0; d < 7; d++) {",
+  "      var active = s.days.indexOf(d) !== -1 ? ' active' : '';",
+  "      html += '<button class=\"day-btn' + active + '\" data-day=\"' + d + '\" data-slot=\"' + i + '\">' + DAYS[d] + '</button>';",
+  "    }",
+  "    html += '</div><div class=\"times\"><label>Başlangıç</label><input type=\"time\" data-slot=\"' + i + '\" data-time=\"start\" value=\"' + esc(s.start) + '\"><label>Bitiş</label><input type=\"time\" data-slot=\"' + i + '\" data-time=\"end\" value=\"' + esc(s.end) + '\"></div></div>';",
+  "  });",
+  "  html += '</div><div style=\"margin-top:12px\"><button id=\"add-slot-btn\" class=\"secondary small\">+ Aralık Ekle</button></div>' +",
+  "    '<div class=\"modal-actions\"><button id=\"cancel-modal\" class=\"secondary\">İptal</button><button id=\"save-modal\" class=\"success\">Kaydet</button></div></div></div>';",
+  "  root.innerHTML = html;",
+  "  root.querySelectorAll('[data-day]').forEach(function(btn) {",
+  "    btn.addEventListener('click', function() {",
+  "      var i = +btn.dataset.slot, d = +btn.dataset.day;",
+  "      var arr = schedule[i].days;",
+  "      var pos = arr.indexOf(d);",
+  "      if (pos === -1) arr.push(d); else arr.splice(pos, 1);",
+  "      arr.sort(); renderModal(schedule);",
+  "    });",
+  "  });",
+  "  root.querySelectorAll('input[data-time]').forEach(function(inp) {",
+  "    inp.addEventListener('change', function() {",
+  "      var i = +inp.dataset.slot, f = inp.dataset.time;",
+  "      var v = normalizeHM(inp.value);",
+  "      inp.value = v; schedule[i][f] = v;",
+  "    });",
+  "  });",
+  "  root.querySelectorAll('[data-rmslot]').forEach(function(btn) {",
+  "    btn.addEventListener('click', function() { schedule.splice(+btn.dataset.rmslot, 1); renderModal(schedule); });",
+  "  });",
+  "  el('add-slot-btn').addEventListener('click', function() {",
+  "    schedule.push({ days: [1,2,3,4,5], start: '19:00', end: '23:00' });",
+  "    renderModal(schedule);",
+  "  });",
+  "  el('cancel-modal').addEventListener('click', closeModal);",
+  "  el('save-modal').addEventListener('click', function() {",
+  "    root.querySelectorAll('input[data-time]').forEach(function(inp) {",
+  "      var i = +inp.dataset.slot, f = inp.dataset.time;",
+  "      var v = normalizeHM(inp.value);",
+  "      inp.value = v; schedule[i][f] = v;",
+  "    });",
+  "    for (var i = 0; i < schedule.length; i++) {",
+  "      var s = schedule[i];",
+  "      if (!s.days.length) { msg('Aralık ' + (i+1) + ': gün seçin', 'error'); return; }",
+  "      var st = parseHM(s.start), en = parseHM(s.end);",
+  "      if (st === null || en === null) { msg('Aralık ' + (i+1) + ': saat geçersiz', 'error'); return; }",
+  "      if (st === en) { msg('Aralık ' + (i+1) + ': başlangıç=bitiş olamaz', 'error'); return; }",
+  "    }",
+  "    channels[editingIdx].schedule = schedule;",
+  "    setDirty(true); closeModal(); render();",
+  "    msg('Program güncellendi. Kaydet butonuna bas.', 'info');",
+  "  });",
+  "  el('modal-bg').addEventListener('click', function(e) {",
+  "    if (e.target.id === 'modal-bg') closeModal();",
+  "  });",
+  "}",
+  "function closeModal() { el('modal-root').innerHTML = ''; editingIdx = -1; }",
+  "function showLogin() { el('login-view').classList.remove('hidden'); el('admin-view').classList.add('hidden'); }",
+  "function showAdmin() { el('login-view').classList.add('hidden'); el('admin-view').classList.remove('hidden'); }",
+  "async function doLogin() {",
+  "  dbg('doLogin başladı');",
+  "  var pwInput = el('password-input');",
+  "  if (!pwInput) { dbg('HATA: password-input yok'); return; }",
+  "  var pw = pwInput.value;",
+  "  if (!pw) { msg('Şifre girin', 'error'); return; }",
+  "  dbg('POST /api/admin/login gönderiliyor');",
+  "  var r;",
+  "  try {",
+  "    r = await fetch('/api/admin/login', {",
+  "      method: 'POST',",
+  "      headers: { 'Content-Type': 'application/json' },",
+  "      credentials: 'same-origin',",
+  "      body: JSON.stringify({ password: pw })",
+  "    });",
+  "  } catch (err) { msg('Ağ hatası: ' + err.message, 'error'); return; }",
+  "  dbg('login status=' + r.status);",
+  "  if (!r.ok) {",
+  "    var j = await r.json().catch(function(){ return {}; });",
+  "    msg(j.error || ('Giriş başarısız HTTP ' + r.status), 'error');",
+  "    return;",
+  "  }",
+  "  pwInput.value = '';",
+  "  dbg('GET /api/admin/channels');",
+  "  var check;",
+  "  try {",
+  "    check = await fetch('/api/admin/channels', { credentials: 'same-origin', cache: 'no-store' });",
+  "  } catch (err) { msg('Kanallar: ' + err.message, 'error'); return; }",
+  "  dbg('channels status=' + check.status);",
+  "  if (check.status === 401) {",
+  "    msg('Cookie yazılamadı. Tarayıcı çerezleri engelliyor olabilir.', 'error', 15000);",
+  "    return;",
+  "  }",
+  "  if (!check.ok) { msg('Kanallar HTTP ' + check.status, 'error'); return; }",
+  "  var data = await check.json();",
+  "  dbg('kanal sayısı=' + data.length);",
+  "  channels = data.map(function(c) {",
+  "    return { id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel', enabled: c.enabled !== false,",
+  "      schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {",
+  "        return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) };",
+  "      }) };",
+  "  });",
+  "  render(); setDirty(false); showAdmin();",
+  "  dbg('showAdmin çağrıldı');",
+  "  msg('Hoş geldiniz! ' + channels.length + ' kanal', 'success');",
+  "}",
+  "document.addEventListener('DOMContentLoaded', function() {",
+  "  dbg('DOMContentLoaded');",
+  "  var loginBtn = document.getElementById('login-btn');",
+  "  dbg('login-btn: ' + (loginBtn ? 'VAR' : 'YOK'));",
+  "  if (loginBtn) loginBtn.addEventListener('click', function(e) { e.preventDefault(); doLogin(); });",
+  "  var pwInput = document.getElementById('password-input');",
+  "  if (pwInput) pwInput.addEventListener('keydown', function(e) {",
+  "    if (e.key === 'Enter') { e.preventDefault(); doLogin(); }",
+  "  });",
+  "  var logoutBtn = document.getElementById('logout-btn');",
+  "  if (logoutBtn) logoutBtn.addEventListener('click', async function() {",
+  "    await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });",
+  "    channels = []; showLogin();",
+  "  });",
+  "  var addBtn = document.getElementById('add-btn');",
+  "  if (addBtn) addBtn.addEventListener('click', function() {",
+  "    channels.push({ id: '', name: 'Yeni Kanal', tvgId: '', group: 'Genel', enabled: true, schedule: [] });",
+  "    render(); setDirty(true);",
+  "    setTimeout(function() {",
+  "      var rows = document.querySelectorAll('#channels-body tr');",
+  "      var last = rows[rows.length - 1];",
+  "      if (last) { last.scrollIntoView({ behavior: 'smooth', block: 'center' });",
+  "        var idInput = last.querySelector('input[data-f=\"id\"]'); if (idInput) idInput.focus(); }",
+  "    }, 50);",
+  "  });",
+  "  var refreshBtn = document.getElementById('refresh-view-btn');",
+  "  if (refreshBtn) refreshBtn.addEventListener('click', async function() {",
+  "    var r = await fetch('/api/admin/channels', { credentials: 'same-origin', cache: 'no-store' });",
+  "    if (r.ok) {",
+  "      var d = await r.json();",
+  "      channels = d.map(function(c) { return { id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel', enabled: c.enabled !== false, schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) { return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) }; }) }; });",
+  "      render(); msg('Yenilendi', 'info', 2000);",
+  "    }",
+  "  });",
+  "  var saveBtn = document.getElementById('save-btn');",
+  "  if (saveBtn) saveBtn.addEventListener('click', async function() {",
+  "    channels = channels.map(function(c) {",
+  "      return { id: String(c.id || '').trim(), name: String(c.name || '').trim(), tvgId: String(c.tvgId || '').trim(), group: String(c.group || '').trim(), enabled: c.enabled !== false,",
+  "        schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) { return { days: (s.days || []).slice().sort(function(a,b){return a-b;}), start: normalizeHM(s.start), end: normalizeHM(s.end) }; }) };",
+  "    });",
+  "    for (var i = 0; i < channels.length; i++) {",
+  "      if (!channels[i].id) { msg('Satır ' + (i+1) + ': ID boş', 'error'); return; }",
+  "      if (!isNumericId(channels[i].id)) { msg('Satır ' + (i+1) + ': ID sayı olmalı', 'error'); return; }",
+  "      if (!channels[i].name) { msg('Satır ' + (i+1) + ': isim boş', 'error'); return; }",
+  "    }",
+  "    try {",
+  "      var r = await fetch('/api/admin/channels', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(channels) });",
+  "      var bodyText = await r.text();",
+  "      var j = {}; try { j = JSON.parse(bodyText); } catch(_) {}",
+  "      if (r.ok) { setDirty(false); msg('✅ Kaydedildi! (' + channels.length + ' kanal)', 'success', 6000); }",
+  "      else { msg('HTTP ' + r.status + ' — ' + (j.error || 'hata'), 'error', 15000); }",
+  "    } catch (e) { msg('Ağ hatası: ' + e.message, 'error', 15000); }",
+  "  });",
+  "  setInterval(function() {",
+  "    var c = el('tr-clock');",
+  "    if (c) c.textContent = '🇹🇷 TR saati: ' + trClockString() + ' (UTC+3)';",
+  "  }, 1000);",
+  "  fetch('/api/admin/channels', { credentials: 'same-origin', cache: 'no-store' }).then(function(r) {",
+  "    if (r.ok) return r.json().then(function(d) {",
+  "      channels = d.map(function(c) { return { id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel', enabled: c.enabled !== false, schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) { return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) }; }) }; });",
+  "      render(); showAdmin();",
+  "    });",
+  "  }).catch(function() {});",
+  "});"
+].join("\n");
 
-<div id="login-view">
-  <h1>🔒 Yönetim Girişi</h1>
-  <input type="password" id="password-input" placeholder="Şifre" autofocus style="margin-bottom:16px">
-  <button type="button" id="login-btn" style="width:100%">Giriş Yap</button>
-</div>
-
-<div id="admin-view" class="hidden">
-  <header>
-    <h1>📺 Matchora Proxy <span id="channel-count"></span></h1>
-    <div style="display:flex;gap:8px">
-      <button id="refresh-view-btn" class="secondary small">🔄 Yenile</button>
-      <button id="logout-btn" class="secondary small">Çıkış</button>
-    </div>
-  </header>
-  <div class="toolbar">
-    <button id="add-btn">+ Yeni Kanal</button>
-    <button id="save-btn" disabled>💾 Kaydet</button>
-    <span id="dirty-indicator"></span>
-    <span style="margin-left:auto;font-size:12px;color:#6b7280" id="tr-clock">Saat dilimi: TR (UTC+3)</span>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th style="width:40px">Durum</th>
-        <th style="width:50px">Aç/Kapa</th>
-        <th style="width:100px">ID</th>
-        <th>İsim</th>
-        <th style="width:130px">TVG ID</th>
-        <th style="width:100px">Grup</th>
-        <th style="width:150px">Program</th>
-        <th style="width:140px">İşlem</th>
-      </tr>
-    </thead>
-    <tbody id="channels-body"></tbody>
-  </table>
-</div>
-
-<div id="modal-root"></div>
-
-<script>
-window.addEventListener('error', function(e) {
-  var b = document.getElementById('js-error-banner');
-  if (b) {
-    b.style.display = 'block';
-    b.textContent = 'JS HATASI: ' + (e.message || 'bilinmeyen') + ' — ' + (e.filename || '') + ':' + (e.lineno || '');
-  }
-});
-
-var channels = [];
-var editingIdx = -1;
-var el = function(id) { return document.getElementById(id); };
-var esc = function(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); };
-var DAYS = ['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
-
-function isNumericId(s) {
-  if (typeof s !== 'string' || s.length === 0) return false;
-  for (var i = 0; i < s.length; i++) {
-    var c = s.charCodeAt(i);
-    if (c < 48 || c > 57) return false;
-  }
-  return true;
-}
-function cleanHM(s) {
-  if (s == null) return "";
-  return String(s).replace(/[\s\u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]/g, "");
-}
-function parseHM(hm) {
-  if (hm == null) return null;
-  var s = cleanHM(hm);
-  var m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/);
-  if (!m) return null;
-  var h = +m[1], mi = +m[2];
-  if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
-  return h * 60 + mi;
-}
-function normalizeHM(s) {
-  var cleaned = cleanHM(s);
-  var mins = parseHM(cleaned);
-  if (mins === null) return cleaned;
-  var h = Math.floor(mins / 60);
-  var m = mins % 60;
-  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-}
-function nowInTR() {
-  var d = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
-}
-function trClockString() {
-  var d = new Date(Date.now() + 3 * 60 * 60 * 1000);
-  var pad = function(n){return String(n).padStart(2,'0');};
-  return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
-}
-function isChannelLiveNow(ch, now) {
-  now = now || nowInTR();
-  if (!ch || ch.enabled === false) return false;
-  var schedule = ch.schedule;
-  if (!Array.isArray(schedule) || schedule.length === 0) return true;
-  for (var i = 0; i < schedule.length; i++) {
-    var s = schedule[i];
-    if (!s || !Array.isArray(s.days) || s.days.length === 0) continue;
-    var start = parseHM(s.start), end = parseHM(s.end);
-    if (start === null || end === null) continue;
-    if (s.days.indexOf(now.day) === -1) continue;
-    if (start <= end) {
-      if (now.minutes >= start && now.minutes < end) return true;
-    } else {
-      if (now.minutes >= start) return true;
-      var prevDay = (now.day + 6) % 7;
-      for (var j = 0; j < schedule.length; j++) {
-        var s2 = schedule[j];
-        if (!s2 || !Array.isArray(s2.days) || s2.days.indexOf(prevDay) === -1) continue;
-        var st2 = parseHM(s2.start), en2 = parseHM(s2.end);
-        if (st2 === null || en2 === null) continue;
-        if (st2 > en2 && now.minutes < en2) return true;
-      }
-    }
-  }
-  return false;
-}
-function setDirty(v) {
-  el('save-btn').disabled = !v;
-  el('dirty-indicator').textContent = v ? '⚠ Kaydedilmemiş değişiklikler' : '';
-}
-function msg(text, type, duration) {
-  type = type || 'success'; duration = duration || 5000;
-  var d = document.createElement('div');
-  d.className = 'status-msg ' + type;
-  d.textContent = text;
-  document.body.appendChild(d);
-  setTimeout(function() { d.remove(); }, duration);
-}
-function updateCount() {
-  var c = el('channel-count');
-  if (c) c.textContent = channels.length ? '(' + channels.length + ' kanal)' : '(boş)';
-}
-function scheduleSummary(schedule) {
-  if (!Array.isArray(schedule) || schedule.length === 0) return '<span class="badge gray">program yok</span>';
-  return schedule.map(function(s) {
-    var d = (s.days || []).map(function(x){return DAYS[x];}).join(',');
-    return '<span class="badge orange" style="margin:1px">' + d + ' ' + esc(s.start) + '-' + esc(s.end) + '</span>';
-  }).join(' ');
-}
-function statusBadge(ch, now) {
-  if (ch.enabled === false) return '<span class="dot off"></span><span class="badge gray">kapalı</span>';
-  if (!Array.isArray(ch.schedule) || ch.schedule.length === 0) return '<span class="dot on"></span><span class="badge green">açık</span>';
-  return isChannelLiveNow(ch, now)
-    ? '<span class="dot sched-on"></span><span class="badge orange">programda açık</span>'
-    : '<span class="dot off"></span><span class="badge gray">programda kapalı</span>';
-}
-
-function render() {
-  var tb = el('channels-body');
-  tb.innerHTML = '';
-  updateCount();
-  var now = nowInTR();
-  if (!channels.length) {
-    tb.innerHTML = '<tr><td colspan="8" class="empty">Henüz kanal yok.</td></tr>';
-    return;
-  }
-  channels.forEach(function(ch, i) {
-    var tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td>' + statusBadge(ch, now) + '</td>' +
-      '<td><label class="toggle"><input type="checkbox" data-en="' + i + '"' + (ch.enabled !== false ? ' checked' : '') + '><span></span></label></td>' +
-      '<td><input type="text" value="' + esc(ch.id) + '" data-f="id" data-i="' + i + '"></td>' +
-      '<td><input type="text" value="' + esc(ch.name) + '" data-f="name" data-i="' + i + '"></td>' +
-      '<td><input type="text" value="' + esc(ch.tvgId || '') + '" data-f="tvgId" data-i="' + i + '"></td>' +
-      '<td><input type="text" value="' + esc(ch.group || '') + '" data-f="group" data-i="' + i + '"></td>' +
-      '<td>' + scheduleSummary(ch.schedule) + '</td>' +
-      '<td class="actions">' +
-        '<button class="secondary small" data-sched="' + i + '">🕐 Program</button>' +
-        '<button class="danger small" data-del="' + i + '">Sil</button>' +
-      '</td>';
-    tb.appendChild(tr);
-  });
-
-  var togs = tb.querySelectorAll('[data-en]');
-  for (var t = 0; t < togs.length; t++) {
-    (function(tg) {
-      tg.addEventListener('change', function(e) {
-        var i = +e.target.dataset.en;
-        channels[i].enabled = e.target.checked;
-        setDirty(true);
-        render();
-      });
-    })(togs[t]);
-  }
-
-  var inputs = tb.querySelectorAll('input[data-f]');
-  for (var k = 0; k < inputs.length; k++) {
-    (function(inp) {
-      inp.addEventListener('input', function(e) {
-        var i = +e.target.dataset.i, f = e.target.dataset.f;
-        channels[i][f] = e.target.value;
-        setDirty(true);
-      });
-      inp.addEventListener('blur', function(e) {
-        var i = +e.target.dataset.i, f = e.target.dataset.f;
-        var trimmed = String(e.target.value || '').trim();
-        if (trimmed !== e.target.value) { e.target.value = trimmed; channels[i][f] = trimmed; }
-      });
-    })(inputs[k]);
-  }
-
-  var delBtns = tb.querySelectorAll('[data-del]');
-  for (var n = 0; n < delBtns.length; n++) {
-    (function(b) {
-      b.addEventListener('click', function() {
-        var i = +b.dataset.del;
-        if (confirm('"' + channels[i].name + '" (ID: ' + channels[i].id + ') silinsin mi?')) {
-          channels.splice(i, 1);
-          render();
-          setDirty(true);
-        }
-      });
-    })(delBtns[n]);
-  }
-
-  var schBtns = tb.querySelectorAll('[data-sched]');
-  for (var m = 0; m < schBtns.length; m++) {
-    (function(b) {
-      b.addEventListener('click', function() {
-        openScheduleModal(+b.dataset.sched);
-      });
-    })(schBtns[m]);
-  }
-}
-
-function openScheduleModal(idx) {
-  editingIdx = idx;
-  var ch = channels[idx];
-  var schedule = JSON.parse(JSON.stringify(ch.schedule || []));
-  schedule.forEach(function(s) {
-    s.start = normalizeHM(s.start);
-    s.end = normalizeHM(s.end);
-  });
-  renderModal(schedule);
-}
-
-function renderModal(schedule) {
-  var root = el('modal-root');
-  var html = '<div class="modal-bg" id="modal-bg">' +
-    '<div class="modal">' +
-    '<h2>🕐 Program — ' + esc(channels[editingIdx].name) + '</h2>' +
-    '<p style="font-size:12px;color:#9ca3af;margin:0 0 16px">Saatler <b>Türkiye saatiyle (UTC+3)</b> girilir. Program boşsa kanal Aç/Kapa anahtarına göre çalışır.</p>' +
-    '<div id="slot-list">';
-
-  if (!schedule.length) {
-    html += '<div style="color:#6b7280;padding:20px;text-align:center;font-size:13px">Henüz program yok. "Aralık Ekle" ile başla.</div>';
-  }
-
-  schedule.forEach(function(s, i) {
-    html += '<div class="slot">' +
-      '<div class="slot-head"><strong>Aralık ' + (i + 1) + '</strong><button class="danger small" data-rmslot="' + i + '">Kaldır</button></div>' +
-      '<div class="days">';
-    for (var d = 0; d < 7; d++) {
-      var active = s.days.indexOf(d) !== -1 ? ' active' : '';
-      html += '<button class="day-btn' + active + '" data-day="' + d + '" data-slot="' + i + '">' + DAYS[d] + '</button>';
-    }
-    html += '</div>' +
-      '<div class="times">' +
-        '<label>Başlangıç</label><input type="time" data-slot="' + i + '" data-time="start" value="' + esc(s.start) + '">' +
-        '<label>Bitiş</label><input type="time" data-slot="' + i + '" data-time="end" value="' + esc(s.end) + '">' +
-      '</div>' +
-    '</div>';
-  });
-
-  html += '</div>' +
-    '<div style="margin-top:12px"><button id="add-slot-btn" class="secondary small">+ Aralık Ekle</button></div>' +
-    '<div class="modal-actions">' +
-      '<button id="cancel-modal" class="secondary">İptal</button>' +
-      '<button id="save-modal" class="success">Kaydet</button>' +
-    '</div>' +
-    '</div></div>';
-
-  root.innerHTML = html;
-
-  root.querySelectorAll('[data-day]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      var i = +btn.dataset.slot, d = +btn.dataset.day;
-      var arr = schedule[i].days;
-      var pos = arr.indexOf(d);
-      if (pos === -1) arr.push(d); else arr.splice(pos, 1);
-      arr.sort();
-      renderModal(schedule);
-    });
-  });
-
-  root.querySelectorAll('input[data-time]').forEach(function(inp) {
-    inp.addEventListener('change', function() {
-      var i = +inp.dataset.slot, f = inp.dataset.time;
-      var v = normalizeHM(inp.value);
-      inp.value = v;
-      schedule[i][f] = v;
-    });
-  });
-
-  root.querySelectorAll('[data-rmslot]').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      schedule.splice(+btn.dataset.rmslot, 1);
-      renderModal(schedule);
-    });
-  });
-
-  el('add-slot-btn').addEventListener('click', function() {
-    schedule.push({ days: [1,2,3,4,5], start: '19:00', end: '23:00' });
-    renderModal(schedule);
-  });
-
-  el('cancel-modal').addEventListener('click', closeModal);
-
-  el('save-modal').addEventListener('click', function() {
-    root.querySelectorAll('input[data-time]').forEach(function(inp) {
-      var i = +inp.dataset.slot, f = inp.dataset.time;
-      var v = normalizeHM(inp.value);
-      inp.value = v;
-      schedule[i][f] = v;
-    });
-
-    for (var i = 0; i < schedule.length; i++) {
-      var s = schedule[i];
-      if (!s.days.length) { msg('Aralık ' + (i + 1) + ': en az bir gün seçin', 'error'); return; }
-      var st = parseHM(s.start), en = parseHM(s.end);
-      if (st === null || en === null) {
-        msg('Aralık ' + (i + 1) + ': saat geçersiz. Başlangıç=' + JSON.stringify(s.start) + ' Bitiş=' + JSON.stringify(s.end), 'error', 10000);
-        return;
-      }
-      if (st === en) { msg('Aralık ' + (i + 1) + ': başlangıç ve bitiş aynı olamaz', 'error'); return; }
-    }
-    channels[editingIdx].schedule = schedule;
-    setDirty(true);
-    closeModal();
-    render();
-    msg('Program güncellendi. Kaydet butonuna basmayı unutma.', 'info');
-  });
-
-  el('modal-bg').addEventListener('click', function(e) {
-    if (e.target.id === 'modal-bg') closeModal();
-  });
-}
-
-function closeModal() {
-  el('modal-root').innerHTML = '';
-  editingIdx = -1;
-}
-
-async function load(silent) {
-  var r = await fetch('/api/admin/channels', { credentials: 'same-origin', cache: 'no-store' });
-  if (r.status === 401) { showLogin(); return; }
-  if (!r.ok) { if (!silent) msg('Kanallar yüklenemedi (HTTP ' + r.status + ')', 'error'); return; }
-  var data = await r.json();
-  channels = data.map(function(c) {
-    return {
-      id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel',
-      enabled: c.enabled !== false,
-      schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
-        return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) };
-      }),
-    };
-  });
-  render();
-  if (!silent) setDirty(false);
-  showAdmin();
-}
-function showLogin() {
-  el('login-view').classList.remove('hidden');
-  el('admin-view').classList.add('hidden');
-}
-function showAdmin() {
-  el('login-view').classList.add('hidden');
-  el('admin-view').classList.remove('hidden');
-}
-
-async function doLogin() {
-  var pw = el('password-input').value;
-  if (!pw) { msg('Şifre girin', 'error'); return; }
-  var r;
-  try {
-    r = await fetch('/api/admin/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify({ password: pw })
-    });
-  } catch (err) {
-    msg('Ağ hatası: ' + err.message, 'error');
-    return;
-  }
-  if (!r.ok) {
-    var j = await r.json().catch(function(){ return {}; });
-    msg(j.error || ('Giriş başarısız (HTTP ' + r.status + ')'), 'error');
-    return;
-  }
-  el('password-input').value = '';
-  var check;
-  try {
-    check = await fetch('/api/admin/channels', {
-      credentials: 'same-origin',
-      cache: 'no-store'
-    });
-  } catch (err) {
-    msg('Kanallar yüklenemedi: ' + err.message, 'error');
-    return;
-  }
-  if (check.status === 401) {
-    msg('Giriş yapıldı ama oturum çerezi tarayıcıya yazılamadı. Gizli modu kapat, çerez engelini kaldır veya farklı tarayıcı dene.', 'error', 15000);
-    return;
-  }
-  if (!check.ok) {
-    msg('Kanallar yüklenemedi (HTTP ' + check.status + ')', 'error');
-    return;
-  }
-  var data = await check.json();
-  channels = data.map(function(c) {
-    return {
-      id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel',
-      enabled: c.enabled !== false,
-      schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
-        return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) };
-      }),
-    };
-  });
-  render();
-  setDirty(false);
-  showAdmin();
-  msg('Hoş geldiniz!');
-}
-
-el('login-btn').addEventListener('click', doLogin);
-el('password-input').addEventListener('keydown', function(e) {
-  if (e.key === 'Enter') {
-    e.preventDefault();
-    doLogin();
-  }
-});
-
-el('logout-btn').addEventListener('click', async function() {
-  await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
-  channels = [];
-  showLogin();
-});
-el('add-btn').addEventListener('click', function() {
-  channels.push({ id: '', name: 'Yeni Kanal', tvgId: '', group: 'Genel', enabled: true, schedule: [] });
-  render();
-  setDirty(true);
-  setTimeout(function() {
-    var rows = document.querySelectorAll('#channels-body tr');
-    var last = rows[rows.length - 1];
-    if (last) {
-      last.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      var idInput = last.querySelector('input[data-f="id"]');
-      if (idInput) idInput.focus();
-    }
-  }, 50);
-});
-el('refresh-view-btn').addEventListener('click', function() {
-  load(true).then(function() {
-    msg('Durum güncellendi', 'info', 2000);
-  });
-});
-el('save-btn').addEventListener('click', async function() {
-  channels = channels.map(function(c) {
-    return {
-      id: String(c.id || '').trim(),
-      name: String(c.name || '').trim(),
-      tvgId: String(c.tvgId || '').trim(),
-      group: String(c.group || '').trim(),
-      enabled: c.enabled !== false,
-      schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
-        return {
-          days: (s.days || []).slice().sort(function(a,b){return a-b;}),
-          start: normalizeHM(s.start),
-          end: normalizeHM(s.end),
-        };
-      }),
-    };
-  });
-  for (var i = 0; i < channels.length; i++) {
-    if (!channels[i].id) { msg('Satır ' + (i + 1) + ': ID boş olamaz', 'error'); return; }
-    if (!isNumericId(channels[i].id)) { msg('Satır ' + (i + 1) + ': ID sadece sayı olmalı', 'error'); return; }
-    if (!channels[i].name) { msg('Satır ' + (i + 1) + ': İsim boş olamaz', 'error'); return; }
-  }
-  try {
-    var r = await fetch('/api/admin/channels', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify(channels)
-    });
-    var bodyText = await r.text();
-    var j = {};
-    try { j = JSON.parse(bodyText); } catch(_) {}
-    if (r.ok) {
-      setDirty(false);
-      msg('✅ Kaydedildi! (' + channels.length + ' kanal)', 'success', 6000);
-      await load(true);
-    } else {
-      var errMsg = j.error || 'Kaydetme başarısız';
-      var detail = j.detail ? (' — ' + j.detail) : '';
-      msg('HTTP ' + r.status + ' | ' + errMsg + detail, 'error', 15000);
-    }
-  } catch (e) { msg('Ağ hatası: ' + e.message, 'error', 15000); }
-});
-
-setInterval(function() {
-  var c = el('tr-clock');
-  if (c) c.textContent = '🇹🇷 TR saati: ' + trClockString() + ' (UTC+3)';
-}, 1000);
-
-setInterval(function() {
-  if (!el('admin-view').classList.contains('hidden') && el('modal-root').innerHTML === '') {
-    render();
-  }
-}, 60000);
-
-fetch('/api/admin/channels', { credentials: 'same-origin', cache: 'no-store' }).then(function(r) {
-  if (r.status === 401) showLogin();
-  else if (r.ok) return r.json().then(function(d) {
-    channels = d.map(function(c) {
-      return {
-        id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel',
-        enabled: c.enabled !== false,
-        schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
-          return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) };
-        }),
-      };
-    });
-    render(); showAdmin();
-  });
-}).catch(function() { showLogin(); });
-</script>
-</body>
-</html>`;
+const ADMIN_HTML = "<!DOCTYPE html>\n" +
+  "<html lang=\"tr\">\n" +
+  "<head>\n" +
+  "<meta charset=\"UTF-8\">\n" +
+  "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n" +
+  "<title>Matchora Proxy — Yönetim</title>\n" +
+  "<style>" + ADMIN_CSS + "</style>\n" +
+  "</head>\n" +
+  "<body>\n" +
+  "<div id=\"js-error-banner\"></div>\n" +
+  "<div id=\"debug-log\"></div>\n" +
+  "<div id=\"login-view\">\n" +
+  "  <h1>🔒 Yönetim Girişi</h1>\n" +
+  "  <input type=\"password\" id=\"password-input\" placeholder=\"Şifre\" autofocus style=\"margin-bottom:16px\">\n" +
+  "  <button type=\"button\" id=\"login-btn\" style=\"width:100%\">Giriş Yap</button>\n" +
+  "</div>\n" +
+  "<div id=\"admin-view\" class=\"hidden\">\n" +
+  "  <header>\n" +
+  "    <h1>📺 Matchora Proxy <span id=\"channel-count\"></span></h1>\n" +
+  "    <div style=\"display:flex;gap:8px\">\n" +
+  "      <button id=\"refresh-view-btn\" class=\"secondary small\">🔄 Yenile</button>\n" +
+  "      <button id=\"logout-btn\" class=\"secondary small\">Çıkış</button>\n" +
+  "    </div>\n" +
+  "  </header>\n" +
+  "  <div class=\"toolbar\">\n" +
+  "    <button id=\"add-btn\">+ Yeni Kanal</button>\n" +
+  "    <button id=\"save-btn\" disabled>💾 Kaydet</button>\n" +
+  "    <span id=\"dirty-indicator\"></span>\n" +
+  "    <span style=\"margin-left:auto;font-size:12px;color:#6b7280\" id=\"tr-clock\">Saat dilimi: TR (UTC+3)</span>\n" +
+  "  </div>\n" +
+  "  <table>\n" +
+  "    <thead>\n" +
+  "      <tr>\n" +
+  "        <th style=\"width:40px\">Durum</th>\n" +
+  "        <th style=\"width:50px\">Aç/Kapa</th>\n" +
+  "        <th style=\"width:100px\">ID</th>\n" +
+  "        <th>İsim</th>\n" +
+  "        <th style=\"width:130px\">TVG ID</th>\n" +
+  "        <th style=\"width:100px\">Grup</th>\n" +
+  "        <th style=\"width:150px\">Program</th>\n" +
+  "        <th style=\"width:140px\">İşlem</th>\n" +
+  "      </tr>\n" +
+  "    </thead>\n" +
+  "    <tbody id=\"channels-body\"></tbody>\n" +
+  "  </table>\n" +
+  "</div>\n" +
+  "<div id=\"modal-root\"></div>\n" +
+  "<script>" + ADMIN_JS + "</scr" + "ipt>\n" +
+  "</body>\n" +
+  "</html>";
 
 // ---------- HTTP Handler ----------
 async function handler(request: Request): Promise<Response> {
@@ -1058,12 +887,19 @@ async function handler(request: Request): Promise<Response> {
       has_session_cookie: !!cookie,
       cookie_len: cookie ? cookie.length : 0,
       origin: baseOrigin,
+      admin_html_len: ADMIN_HTML.length,
+      admin_js_len: ADMIN_JS.length,
     }, null, 2), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } });
   }
 
   if (path === "/admin" || path === "/admin/") {
     return new Response(ADMIN_HTML, {
-      headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+        "Expires": "0",
+      },
     });
   }
 
@@ -1121,12 +957,12 @@ async function handler(request: Request): Promise<Response> {
     if (request.method === "POST") {
       let channels: any[];
       try { channels = await request.json(); } catch (e: any) {
-        return new Response(JSON.stringify({ error: "JSON parse hatası", detail: e.message }), {
+        return new Response(JSON.stringify({ error: "JSON parse: " + e.message }), {
           status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       }
       if (!Array.isArray(channels)) {
-        return new Response(JSON.stringify({ error: "Geçersiz veri: dizi bekleniyor" }), {
+        return new Response(JSON.stringify({ error: "Dizi bekleniyor" }), {
           status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       }
@@ -1141,7 +977,7 @@ async function handler(request: Request): Promise<Response> {
         }
         const name = String((c && c.name) || "").trim();
         if (!name) {
-          return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": İsim zorunlu" }), {
+          return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": isim zorunlu" }), {
             status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
           });
         }
@@ -1150,8 +986,7 @@ async function handler(request: Request): Promise<Response> {
       }
       const dupes = [...idMap.entries()].filter(([_, rows]) => rows.length > 1);
       if (dupes.length) {
-        const detail = dupes.map(([id, rows]) => '"' + id + '" (satır ' + rows.join(', ') + ')').join(' | ');
-        return new Response(JSON.stringify({ error: "Tekrarlanan ID: " + detail }), {
+        return new Response(JSON.stringify({ error: "Tekrarlanan ID: " + dupes.map(([id, r]) => id + ' (satır ' + r.join(',') + ')').join(' | ') }), {
           status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
         });
       }
@@ -1162,23 +997,20 @@ async function handler(request: Request): Promise<Response> {
         const cleanSchedule: { days: number[]; start: string; end: string }[] = [];
         for (const s of rawSchedule) {
           if (!Array.isArray(s.days) || s.days.length === 0) {
-            return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": program aralığında gün seçin" }), {
+            return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": gün seçin" }), {
               status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
             });
           }
           const st = normalizeHM(s.start);
           const en = normalizeHM(s.end);
           if (parseHM(st) === null || parseHM(en) === null) {
-            return new Response(JSON.stringify({
-              error: "Satır " + (i + 1) + ": saat SS:DD formatında olmalı (gelen: " + JSON.stringify(s.start) + " / " + JSON.stringify(s.end) + ")"
-            }), {
+            return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": saat geçersiz (" + JSON.stringify(s.start) + " / " + JSON.stringify(s.end) + ")" }), {
               status: 400, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
             });
           }
           cleanSchedule.push({
             days: [...new Set(s.days)].sort((a: number, b: number) => a - b),
-            start: st,
-            end: en,
+            start: st, end: en,
           });
         }
         cleaned.push({
@@ -1225,7 +1057,7 @@ async function handler(request: Request): Promise<Response> {
     if (!channelId) return new Response("Kanal yok", { status: 400 });
     const ch = channels.find(c => c.id === channelId);
     if (!ch) {
-      return new Response(JSON.stringify({ error: "Kanal bulunamadı", id: channelId }), {
+      return new Response(JSON.stringify({ error: "Kanal bulunamadı" }), {
         status: 404, headers: { "Content-Type": "application/json" },
       });
     }
@@ -1234,9 +1066,8 @@ async function handler(request: Request): Promise<Response> {
       return new Response(JSON.stringify({
         error: "Kanal şu an kapalı",
         reason: ch.enabled === false ? "manual-disabled" : "outside-schedule",
-        id: channelId,
-        name: ch.name,
-        nowTR: { day: now.day, minutes: now.minutes, time: Math.floor(now.minutes / 60) + ":" + String(now.minutes % 60).padStart(2, "0") },
+        id: channelId, name: ch.name,
+        nowTR: { day: now.day, minutes: now.minutes },
       }), {
         status: 410, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
@@ -1281,8 +1112,7 @@ async function handler(request: Request): Promise<Response> {
     for (const ch of channels) {
       const cache = tokenCache[ch.id];
       result[ch.id] = {
-        name: ch.name,
-        enabled: ch.enabled !== false,
+        name: ch.name, enabled: ch.enabled !== false,
         scheduleCount: (ch.schedule || []).length,
         liveNow: isChannelLiveNow(ch, now),
         hasToken: !!(cache && cache.streamUrl),
@@ -1299,9 +1129,8 @@ async function handler(request: Request): Promise<Response> {
     if (!c) return new Response("Kanal yok", { status: 400 });
     try {
       await getToken(c, true);
-      delete manifestCache[c + ":m"];
-      delete manifestCache[c + ":p"];
-      return new Response(JSON.stringify({ ok: true, channelId: c }, null, 2), {
+      delete manifestCache[c + ":m"]; delete manifestCache[c + ":p"];
+      return new Response(JSON.stringify({ ok: true, channelId: c }), {
         headers: { "Content-Type": "application/json" },
       });
     } catch (e: any) {
