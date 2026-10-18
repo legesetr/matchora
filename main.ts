@@ -75,12 +75,20 @@ let channelsCacheExpires = 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// ---------- Deno KV ----------
-const kv = await Deno.openKv();
+// ---------- Deno KV (tembel başlatma, üst düzey await yok) ----------
+let kvInstance: Deno.Kv | null = null;
+
+function getKv(): Promise<Deno.Kv> {
+  if (!kvInstance) {
+    kvInstance = Deno.openKv() as any; // Promise döner ama ilk çağrıda beklenir
+  }
+  return Promise.resolve(kvInstance as any);
+}
 
 async function loadChannels(force = false): Promise<Channel[]> {
   if (!force && channelsCacheExpires > Date.now()) return channelsStore;
   try {
+    const kv = await getKv();
     const res = await kv.get<Channel[]>(["channels"]);
     if (res.value) {
       channelsStore = res.value.map(c => ({
@@ -102,7 +110,12 @@ async function loadChannels(force = false): Promise<Channel[]> {
 async function persistChannels(channels: Channel[]) {
   channelsStore = channels;
   channelsCacheExpires = Date.now() + CHANNELS_CACHE_MS;
-  await kv.set(["channels"], channels);
+  try {
+    const kv = await getKv();
+    await kv.set(["channels"], channels);
+  } catch (e) {
+    console.error("KV write error:", e);
+  }
 }
 
 // ---------- Cron ----------
