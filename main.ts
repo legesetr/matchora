@@ -195,12 +195,6 @@ function isNumericId(s: string): boolean {
   return true;
 }
 
-function charCodes(s: string): string {
-  const r: number[] = [];
-  for (let i = 0; i < s.length; i++) r.push(s.charCodeAt(i));
-  return r.join(",");
-}
-
 // ---------- Schedule (TR = UTC+3) ----------
 function cleanHM(s: any): string {
   if (s == null) return "";
@@ -503,17 +497,18 @@ td input.invalid{border-color:#dc2626;background:#2a0f0f}
 .badge.green{background:#065f46;color:#6ee7b7}
 .badge.gray{background:#374151;color:#9ca3af}
 .badge.orange{background:#7c2d12;color:#fdba74}
+#js-error-banner{position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:12px;z-index:9999;font-family:monospace;font-size:12px;display:none}
 @media(max-width:768px){table{font-size:11px}th,td{padding:6px}header h1{font-size:16px}.status-msg{max-width:90vw}}
 </style>
 </head>
 <body>
 
+<div id="js-error-banner"></div>
+
 <div id="login-view">
   <h1>🔒 Yönetim Girişi</h1>
-  <form id="login-form">
-    <input type="password" id="password-input" placeholder="Şifre" required autofocus style="margin-bottom:16px">
-    <button type="submit" style="width:100%">Giriş Yap</button>
-  </form>
+  <input type="password" id="password-input" placeholder="Şifre" autofocus style="margin-bottom:16px">
+  <button type="button" id="login-btn" style="width:100%">Giriş Yap</button>
 </div>
 
 <div id="admin-view" class="hidden">
@@ -550,6 +545,14 @@ td input.invalid{border-color:#dc2626;background:#2a0f0f}
 <div id="modal-root"></div>
 
 <script>
+window.addEventListener('error', function(e) {
+  var b = document.getElementById('js-error-banner');
+  if (b) {
+    b.style.display = 'block';
+    b.textContent = 'JS HATASI: ' + (e.message || 'bilinmeyen') + ' — ' + (e.filename || '') + ':' + (e.lineno || '');
+  }
+});
+
 var channels = [];
 var editingIdx = -1;
 var el = function(id) { return document.getElementById(id); };
@@ -875,27 +878,39 @@ function showAdmin() {
   el('admin-view').classList.remove('hidden');
 }
 
-el('login-form').addEventListener('submit', async function(e) {
-  e.preventDefault();
+async function doLogin() {
   var pw = el('password-input').value;
-  var r = await fetch('/api/admin/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'same-origin',
-    body: JSON.stringify({ password: pw })
-  });
+  if (!pw) { msg('Şifre girin', 'error'); return; }
+  var r;
+  try {
+    r = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ password: pw })
+    });
+  } catch (err) {
+    msg('Ağ hatası: ' + err.message, 'error');
+    return;
+  }
   if (!r.ok) {
     var j = await r.json().catch(function(){ return {}; });
-    msg(j.error || 'Yanlış şifre', 'error');
+    msg(j.error || ('Giriş başarısız (HTTP ' + r.status + ')'), 'error');
     return;
   }
   el('password-input').value = '';
-  var check = await fetch('/api/admin/channels', {
-    credentials: 'same-origin',
-    cache: 'no-store'
-  });
+  var check;
+  try {
+    check = await fetch('/api/admin/channels', {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+  } catch (err) {
+    msg('Kanallar yüklenemedi: ' + err.message, 'error');
+    return;
+  }
   if (check.status === 401) {
-    msg('Giriş yapıldı ama oturum çerezi tarayıcıya yazılamadı. Tarayıcı çerezleri engelliyor olabilir. Gizli modu kapat, çerez engelini kaldır veya farklı tarayıcı dene.', 'error', 15000);
+    msg('Giriş yapıldı ama oturum çerezi tarayıcıya yazılamadı. Gizli modu kapat, çerez engelini kaldır veya farklı tarayıcı dene.', 'error', 15000);
     return;
   }
   if (!check.ok) {
@@ -916,7 +931,16 @@ el('login-form').addEventListener('submit', async function(e) {
   setDirty(false);
   showAdmin();
   msg('Hoş geldiniz!');
+}
+
+el('login-btn').addEventListener('click', doLogin);
+el('password-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    doLogin();
+  }
 });
+
 el('logout-btn').addEventListener('click', async function() {
   await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
   channels = [];
