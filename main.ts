@@ -1,5 +1,5 @@
 // ============================================================
-// Matchora Proxy — Deno Deploy (Zamanlanmış Yayın Kontrolü)
+// Matchora Proxy — Deno Deploy (Türkiye Saati + Zamanlayıcı)
 // ============================================================
 
 const MATCHORA_BASE = "https://matchora.to";
@@ -75,12 +75,12 @@ let channelsCacheExpires = 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// ---------- Deno KV (tembel başlatma, üst düzey await yok) ----------
+// ---------- Deno KV (tembel başlatma) ----------
 let kvInstance: Deno.Kv | null = null;
 
 function getKv(): Promise<Deno.Kv> {
   if (!kvInstance) {
-    kvInstance = Deno.openKv() as any; // Promise döner ama ilk çağrıda beklenir
+    kvInstance = Deno.openKv() as any;
   }
   return Promise.resolve(kvInstance as any);
 }
@@ -201,16 +201,26 @@ function charCodes(s: string): string {
   return r.join(",");
 }
 
-// ---------- Schedule ----------
+// ---------- Schedule (Türkiye saati = UTC+3) ----------
 function parseHM(hm: string): number | null {
   if (typeof hm !== "string") return null;
-  const m = hm.match(/^(\d{1,2}):(\d{2})$/);
+  // "HH:MM", "HH:MM:SS", "HH:MM:SS.sss" hepsini kabul et
+  const m = hm.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/);
   if (!m) return null;
   const h = +m[1], mi = +m[2];
   if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
   return h * 60 + mi;
 }
 
+function normalizeHM(s: string): string {
+  const mins = parseHM(s);
+  if (mins === null) return s;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+
+// Türkiye saati: UTC+3, yaz saati uygulaması yok (2016'dan beri sabit)
 function nowInTR() {
   const d = new Date(Date.now() + 3 * 60 * 60 * 1000);
   return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
@@ -230,8 +240,10 @@ function isChannelLiveNow(channel: Channel, now?: { day: number; minutes: number
     if (!slot.days.includes(now.day)) continue;
 
     if (start <= end) {
+      // Aynı gün: 14:00-23:30
       if (now.minutes >= start && now.minutes < end) return true;
     } else {
+      // Gece yarısını aşan: 22:00-02:00
       if (now.minutes >= start) return true;
       const prevDay = (now.day + 6) % 7;
       for (const s2 of schedule) {
@@ -513,7 +525,7 @@ td input.invalid{border-color:#dc2626;background:#2a0f0f}
     <button id="add-btn">+ Yeni Kanal</button>
     <button id="save-btn" disabled>💾 Kaydet</button>
     <span id="dirty-indicator"></span>
-    <span style="margin-left:auto;font-size:12px;color:#6b7280">Saat dilimi: TR (UTC+3)</span>
+    <span style="margin-left:auto;font-size:12px;color:#6b7280" id="tr-clock">Saat dilimi: TR (UTC+3)</span>
   </div>
   <table>
     <thead>
@@ -549,33 +561,31 @@ function isNumericId(s) {
   }
   return true;
 }
-function setDirty(v) {
-  el('save-btn').disabled = !v;
-  el('dirty-indicator').textContent = v ? '⚠ Kaydedilmemiş değişiklikler' : '';
-}
-function msg(text, type, duration) {
-  type = type || 'success'; duration = duration || 5000;
-  var d = document.createElement('div');
-  d.className = 'status-msg ' + type;
-  d.textContent = text;
-  document.body.appendChild(d);
-  setTimeout(function() { d.remove(); }, duration);
-}
-function updateCount() {
-  var c = el('channel-count');
-  if (c) c.textContent = channels.length ? '(' + channels.length + ' kanal)' : '(boş)';
-}
+// "HH:MM" / "HH:MM:SS" / "HH:MM:SS.sss" hepsini kabul et
 function parseHM(hm) {
   if (typeof hm !== 'string') return null;
-  var m = hm.match(/^(\d{1,2}):(\d{2})$/);
+  var m = hm.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?$/);
   if (!m) return null;
   var h = +m[1], mi = +m[2];
   if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
   return h * 60 + mi;
 }
+function normalizeHM(s) {
+  var mins = parseHM(s);
+  if (mins === null) return String(s || '');
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+}
+// Türkiye saati (UTC+3) — tarayıcı hangi dilimde olursa olsun TR göster
 function nowInTR() {
   var d = new Date(Date.now() + 3 * 60 * 60 * 1000);
   return { day: d.getUTCDay(), minutes: d.getUTCHours() * 60 + d.getUTCMinutes() };
+}
+function trClockString() {
+  var d = new Date(Date.now() + 3 * 60 * 60 * 1000);
+  var pad = function(n){return String(n).padStart(2,'0');};
+  return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds());
 }
 function isChannelLiveNow(ch, now) {
   now = now || nowInTR();
@@ -603,6 +613,22 @@ function isChannelLiveNow(ch, now) {
     }
   }
   return false;
+}
+function setDirty(v) {
+  el('save-btn').disabled = !v;
+  el('dirty-indicator').textContent = v ? '⚠ Kaydedilmemiş değişiklikler' : '';
+}
+function msg(text, type, duration) {
+  type = type || 'success'; duration = duration || 5000;
+  var d = document.createElement('div');
+  d.className = 'status-msg ' + type;
+  d.textContent = text;
+  document.body.appendChild(d);
+  setTimeout(function() { d.remove(); }, duration);
+}
+function updateCount() {
+  var c = el('channel-count');
+  if (c) c.textContent = channels.length ? '(' + channels.length + ' kanal)' : '(boş)';
 }
 function scheduleSummary(schedule) {
   if (!Array.isArray(schedule) || schedule.length === 0) return '<span class="badge gray">program yok</span>';
@@ -701,6 +727,11 @@ function openScheduleModal(idx) {
   editingIdx = idx;
   var ch = channels[idx];
   var schedule = JSON.parse(JSON.stringify(ch.schedule || []));
+  // normalize on open (eski kayıtlardaki "19:00:00" gibi değerleri temizle)
+  schedule.forEach(function(s) {
+    s.start = normalizeHM(s.start);
+    s.end = normalizeHM(s.end);
+  });
   renderModal(schedule);
 }
 
@@ -709,7 +740,7 @@ function renderModal(schedule) {
   var html = '<div class="modal-bg" id="modal-bg">' +
     '<div class="modal">' +
     '<h2>🕐 Program — ' + esc(channels[editingIdx].name) + '</h2>' +
-    '<p style="font-size:12px;color:#9ca3af;margin:0 0 16px">Program boşsa kanal Aç/Kapa anahtarına göre çalışır. Program doluysa sadece seçili gün+saat aralıklarında yayın açılır.</p>' +
+    '<p style="font-size:12px;color:#9ca3af;margin:0 0 16px">Saatler <b>Türkiye saatiyle (UTC+3)</b> girilir. Program boşsa kanal Aç/Kapa anahtarına göre çalışır.</p>' +
     '<div id="slot-list">';
 
   if (!schedule.length) {
@@ -753,9 +784,17 @@ function renderModal(schedule) {
     });
   });
 
+  // Zaman input: "19:00:00" gelirse "19:00" yap
   root.querySelectorAll('input[data-time]').forEach(function(inp) {
     inp.addEventListener('change', function() {
       var i = +inp.dataset.slot, f = inp.dataset.time;
+      var v = normalizeHM(inp.value);
+      inp.value = v;
+      schedule[i][f] = v;
+    });
+    inp.addEventListener('input', function() {
+      var i = +inp.dataset.slot, f = inp.dataset.time;
+      // canlı yazarken bozmasın, sadece değeri sakla
       schedule[i][f] = inp.value;
     });
   });
@@ -768,6 +807,7 @@ function renderModal(schedule) {
   });
 
   el('add-slot-btn').addEventListener('click', function() {
+    var n = nowInTR();
     schedule.push({ days: [1,2,3,4,5], start: '19:00', end: '23:00' });
     renderModal(schedule);
   });
@@ -775,11 +815,19 @@ function renderModal(schedule) {
   el('cancel-modal').addEventListener('click', closeModal);
 
   el('save-modal').addEventListener('click', function() {
+    // Önce tüm saatleri normalize et
+    for (var i = 0; i < schedule.length; i++) {
+      schedule[i].start = normalizeHM(schedule[i].start);
+      schedule[i].end = normalizeHM(schedule[i].end);
+    }
     for (var i = 0; i < schedule.length; i++) {
       var s = schedule[i];
       if (!s.days.length) { msg('Aralık ' + (i + 1) + ': en az bir gün seçin', 'error'); return; }
       var st = parseHM(s.start), en = parseHM(s.end);
-      if (st === null || en === null) { msg('Aralık ' + (i + 1) + ': saat SS:DD formatında olmalı', 'error'); return; }
+      if (st === null || en === null) {
+        msg('Aralık ' + (i + 1) + ': saat SS:DD formatında olmalı. Gelen: "' + s.start + '" / "' + s.end + '"', 'error');
+        return;
+      }
       if (st === en) { msg('Aralık ' + (i + 1) + ': başlangıç ve bitiş aynı olamaz', 'error'); return; }
     }
     channels[editingIdx].schedule = schedule;
@@ -808,7 +856,9 @@ async function load(silent) {
     return {
       id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel',
       enabled: c.enabled !== false,
-      schedule: Array.isArray(c.schedule) ? c.schedule : [],
+      schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
+        return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) };
+      }),
     };
   });
   render();
@@ -872,7 +922,13 @@ el('save-btn').addEventListener('click', async function() {
       tvgId: String(c.tvgId || '').trim(),
       group: String(c.group || '').trim(),
       enabled: c.enabled !== false,
-      schedule: Array.isArray(c.schedule) ? c.schedule : [],
+      schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
+        return {
+          days: (s.days || []).slice().sort(function(a,b){return a-b;}),
+          start: normalizeHM(s.start),
+          end: normalizeHM(s.end),
+        };
+      }),
     };
   });
   for (var i = 0; i < channels.length; i++) {
@@ -900,6 +956,12 @@ el('save-btn').addEventListener('click', async function() {
   } catch (e) { msg('Ağ hatası: ' + e.message, 'error', 15000); }
 });
 
+// TR saatini canlı göster
+setInterval(function() {
+  var c = el('tr-clock');
+  if (c) c.textContent = '🇹🇷 TR saati: ' + trClockString() + ' (UTC+3)';
+}, 1000);
+
 setInterval(function() {
   if (!el('admin-view').classList.contains('hidden') && el('modal-root').innerHTML === '') {
     render();
@@ -910,7 +972,13 @@ fetch('/api/admin/channels').then(function(r) {
   if (r.status === 401) showLogin();
   else if (r.ok) return r.json().then(function(d) {
     channels = d.map(function(c) {
-      return { id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel', enabled: c.enabled !== false, schedule: Array.isArray(c.schedule) ? c.schedule : [] };
+      return {
+        id: c.id, name: c.name, tvgId: c.tvgId || '', group: c.group || 'Genel',
+        enabled: c.enabled !== false,
+        schedule: (Array.isArray(c.schedule) ? c.schedule : []).map(function(s) {
+          return { days: s.days || [], start: normalizeHM(s.start), end: normalizeHM(s.end) };
+        }),
+      };
     });
     render(); showAdmin();
   });
@@ -932,6 +1000,8 @@ async function handler(request: Request): Promise<Response> {
       ADMIN_PASSWORD_set: !!pw,
       storage: "Deno KV",
       channels_count: chs.length,
+      timezone: "TR (UTC+3)",
+      nowTR: nowInTR(),
     }, null, 2), { headers: { "Content-Type": "application/json" } });
   }
 
@@ -1029,18 +1099,28 @@ async function handler(request: Request): Promise<Response> {
       const cleaned: Channel[] = [];
       for (let i = 0; i < channels.length; i++) {
         const c = channels[i];
-        const schedule = Array.isArray(c.schedule) ? c.schedule : [];
-        for (const s of schedule) {
+        const rawSchedule = Array.isArray(c.schedule) ? c.schedule : [];
+        const cleanSchedule: { days: number[]; start: string; end: string }[] = [];
+        for (const s of rawSchedule) {
           if (!Array.isArray(s.days) || s.days.length === 0) {
             return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": program aralığında gün seçin" }), {
               status: 400, headers: { "Content-Type": "application/json" },
             });
           }
-          if (parseHM(s.start) === null || parseHM(s.end) === null) {
-            return new Response(JSON.stringify({ error: "Satır " + (i + 1) + ": saat SS:DD formatında olmalı" }), {
+          const st = normalizeHM(String(s.start || ""));
+          const en = normalizeHM(String(s.end || ""));
+          if (parseHM(st) === null || parseHM(en) === null) {
+            return new Response(JSON.stringify({
+              error: "Satır " + (i + 1) + ": saat SS:DD formatında olmalı (gelen: \"" + s.start + "\" / \"" + s.end + "\")"
+            }), {
               status: 400, headers: { "Content-Type": "application/json" },
             });
           }
+          cleanSchedule.push({
+            days: [...new Set(s.days)].sort((a: number, b: number) => a - b),
+            start: st,
+            end: en,
+          });
         }
         cleaned.push({
           id: String(c.id || "").trim(),
@@ -1048,7 +1128,7 @@ async function handler(request: Request): Promise<Response> {
           tvgId: c.tvgId ? String(c.tvgId).trim() : "",
           group: c.group ? String(c.group).trim() : "Genel",
           enabled: c.enabled !== false,
-          schedule,
+          schedule: cleanSchedule,
         });
       }
       await persistChannels(cleaned);
@@ -1097,7 +1177,7 @@ async function handler(request: Request): Promise<Response> {
         reason: ch.enabled === false ? "manual-disabled" : "outside-schedule",
         id: channelId,
         name: ch.name,
-        nowTR: { day: now.day, minutes: now.minutes },
+        nowTR: { day: now.day, minutes: now.minutes, time: Math.floor(now.minutes / 60) + ":" + String(now.minutes % 60).padStart(2, "0") },
       }), {
         status: 410, headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
       });
